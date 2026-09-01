@@ -1,0 +1,1 @@
+Datum	Cas	Napeti_Sum_V	ProudIN_A	ProudOUT_A	T_MidPack	Rele_OUT(Load)
