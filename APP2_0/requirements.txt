@@ -1,0 +1,9 @@
+# Battery Digital Twin -- runtime dependencies (Windows and Raspberry Pi/Linux both work,
+# see BatteryMonitorGUI.py's module docstring). Versions are loose minimums on purpose:
+# on Raspberry Pi OS, pip resolves ARM wheels from piwheels.org, and pinning to a version
+# newer than what piwheels has built yet would force a from-source build.
+pyserial>=3.5
+numpy>=1.24
+scipy>=1.10
+matplotlib>=3.7
+customtkinter>=5.2
