@@ -232,6 +232,15 @@ class MonitorApp:
         self.sPort = None
         self.portLock = threading.Lock()
         self.tStart = None
+        # Separate from self.tStart on purpose -- toggleConnection() also sets tStart
+        # (as a t=0 reference for anything timestamped before Start is clicked, e.g. a
+        # manual relay toggle), which used to silently defeat toggleMeasurement()'s own
+        # "is this the actual first start" check further down (both tested the SAME
+        # `self.tStart is None`, so by the time Start was clicked it was never None
+        # anymore -- the rest-voltage initial-SOC estimate never ran for a live
+        # connect+start session, only for loadTestFile(), which doesn't use this guard
+        # at all). Reset on disconnect so a later reconnect gets a fresh estimate.
+        self._socEstimatedThisSession = False
         self.stopEvent = None
         self.workerThread = None
         self.dataQueue = queue.Queue()
@@ -822,7 +831,7 @@ class MonitorApp:
 
         self.fastFileLogVar = ctk.BooleanVar(value=self.fastFileLogEnabled)
         self.fastFileLogSwitch = ctk.CTkSwitch(
-            dataFrame, text=f"Also log every {FILE_LOG_PERIOD_FAST:.0f} s (Battery_monitor_output_5s.txt)",
+            dataFrame, text=f"Also log every {FILE_LOG_PERIOD_FAST:.0f} s",
             variable=self.fastFileLogVar, onvalue=True, offvalue=False,
             progress_color=GREEN, text_color=dual("text"),
             command=self._toggleFastFileLog)
@@ -2541,6 +2550,7 @@ class MonitorApp:
 
         self._cutoffInitialApplied = False
         self.cutoffVoltageLabel.configure(text="Current voltage sum: --- V")
+        self._socEstimatedThisSession = False
 
     # ------------------------------------------------------------------
     # START / STOP MEASUREMENT (requires an active connection)
@@ -2566,12 +2576,17 @@ class MonitorApp:
                     self.relayOutCh, initialState,
                     f"measurement start with sequence — initial state {'ON' if initialState else 'OFF'}")
 
-            if self.tStart is None:
+            if not self._socEstimatedThisSession:
                 # Only on the actual first start of a session (not a Stop/Start resume,
                 # which must keep the ECM's accumulated SOC/state) -- same rest-voltage SOC
                 # estimate loadTestFile already does from a log's first row, just taken
-                # live instead of read from a file.
+                # live instead of read from a file. Deliberately NOT gated on
+                # `self.tStart is None` -- toggleConnection() already sets tStart on
+                # Connect for unrelated reasons, which used to make this never fire at all.
                 self._estimateInitialSocFromLiveReading()
+                self._socEstimatedThisSession = True
+
+            if self.tStart is None:
                 self.tStart = time.perf_counter()
 
             self.logMsg("Starting data collection...")
