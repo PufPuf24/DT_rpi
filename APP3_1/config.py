@@ -35,6 +35,16 @@ DEFAULTS = {
     "custom_v_max": 4.15,
     "custom_t_min": -10.0,
     "custom_t_max": 45.0,
+    # Maintenance validation cycle (ground-truth SoH, see maintenance_cycle.py) --
+    # per-cell thresholds. Discharge stops at the WEAKEST cell, charge stops at
+    # the STRONGEST, so a pack without per-cell balancing can't over/under-run
+    # any single cell even if the others differ.
+    "maintenance_discharge_cutoff_v": 3.35,
+    "maintenance_charge_full_v": 4.2,
+    # Optional second detail log at a fixed, much shorter period than FILE_LOG_PERIOD
+    # (see BatteryMonitorGUI.py) -- Battery_monitor_output_5s.txt, same format as
+    # Battery_monitor_output.txt. Off by default; toggled from the Data card.
+    "fast_file_log_enabled": False,
 }
 
 # Bezpečný rozsah napětí na jeden článek — používá se k ohraničení prahů

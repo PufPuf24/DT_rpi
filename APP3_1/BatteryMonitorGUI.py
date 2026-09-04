@@ -3,11 +3,31 @@ Battery Digital Twin -- with ECM voltage simulation and a pack thermal model.
 Python translation/extension of BatteryMonitorGUI.m
 
 Dependencies:
-    pip install pyserial matplotlib customtkinter scipy fmpy
+    pip install pyserial matplotlib customtkinter scipy numpy
+    pip install scikit-learn joblib pandas   # SoH: soh/ (opportunistic FFNN estimator)
+    (fmpy/Ansys are no longer needed -- the thermal model is pack_rom_thermal_model.py,
+    pure NumPy, see thermal_rom/. fmu_thermal_model.py is kept only for reference and
+    is not imported by this file.)
+
+SoH degradation estimation (Battery Health page): see soh/README.md for the full
+design -- ground-truth Maintenance validation cycle (Coulomb counting, this is the
+trusted number) vs. two opportunistic, lower-trust estimators that share one
+per-group SohTracker: the tV-window FFNN from C:\\code2\\python, and a "quick field"
+short-window (10-30 min) FFNN calibrated directly at the bench's own ~7 A native
+rate (ported from C:\\code2\\MTB's Peukert/field-calibration study). All wired in
+and tested.
+
+SOC estimation (ECM model card): two independent estimates run side by side --
+ecm_model.EcmModel (self.ecm, open-loop Coulomb counting, kept unfused on purpose so
+its "Simulated voltage" stays a fair comparison against the real measurement) and
+ecm_ekf.EcmEkfEstimator (self.ecmEkf, a 2RC ECM + EKF ported from the dissertation's
+ECM_EKF_3DISS_FIG.m, fusing the real measured voltage to correct SOC drift -- live
+measurement only, see the "(EKF)" label).
 """
 
 import bisect
 import copy
+import csv
 import math
 import os
 import queue
@@ -23,16 +43,28 @@ import serial
 import serial.tools.list_ports
 
 matplotlib.use("TkAgg")
+import matplotlib.dates as mdates
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 
+import joblib
+import pandas as pd
+
 import config
+import soh_store
 from battery_file_logger import BatteryFileLogger
 from cutoff_logic import decide_relay_action
 from data_tools import export_session_csv, parse_log_file
+from maintenance_cycle import MaintenanceCycle
+from maintenance_cycle import Phase as MaintPhase
+from soh import config as sohConfig
+from soh.curves import voltage_window_time
+from soh.field_window import capacity_window_dv, window_capacity_coverage
+from soh.online import GateSettings, Observation, SohTracker, SteadyStateGate, Tier, Verdict, scan_segments, window_coverage
 from theme import ACCENT, DARK, GRAY, GREEN, LIGHT, ORANGE, RED, YELLOW, dual, tokens_for_mode
 from thermistor import resistanceToCelsius
 from ecm_model import EcmModel, estimateInitialSocPct, replaySeries
+from ecm_ekf import EcmEkfEstimator
 from pack_rom_thermal_model import PackRomThermalWorker as FmuThermalWorker, N_CELLS as FMU_N_CELLS
 from fmu_detail_window import FmuDetailWindow
 from log_window import LogWindow
@@ -58,16 +90,64 @@ CELL_ABS_T_MAX = 55.0
 BALANCE_WARN_PCT = 0.5
 BALANCE_CRIT_PCT = 1.5
 
-# Estimation ("digital twin") forward projection
-ESTIMATION_HORIZONS_H = [1, 2, 4, 8, 12, 24]
-ESTIMATION_DEFAULT_H = 2
+# Estimation ("digital twin") forward projection. Horizon is chosen on a slider (plus a
+# manual minutes entry) instead of a fixed dropdown -- 1-minute steps below 1 h (where the
+# resolution actually matters), 30-minute steps from 1 h up to the 24 h ceiling.
+ESTIMATION_MINUTES_STEPS = list(range(1, 61)) + list(range(90, 24 * 60 + 1, 30))
+ESTIMATION_DEFAULT_MIN = 120  # 2 h, same default as before
 ESTIMATION_DT_S = 10.0          # projection sample spacing -- smooth without being wasteful
 ESTIMATION_RECOMPUTE_MS = 2000  # how often the projection refreshes while switched on
 
+# Opportunistic SoH (Phase 2, see soh/README.md) -- how often to rescan the live
+# history for a usable voltage-window segment. scan_segments/window_coverage over
+# up to MAX_POINTS samples is cheap, but there is no reason to redo it every 50 ms
+# poll tick -- a genuinely new CC segment doesn't appear that fast.
+SOH_OPPORTUNISTIC_SCAN_S = 30.0
+# An opportunistic observation this old is logged but excluded from fusion --
+# belt-and-braces safety cap alongside SohTracker's own Kalman drift widening
+# (see soh/README.md's Phase 3 section for why this is a cap, not the main
+# mechanism). The user was unsure whether a week or a month was right and ruled
+# out longer than a month; 30 days is the stated upper bound, not a guess.
+SOH_MAX_OBSERVATION_AGE_DAYS = 30.0
+# A combination's windows must all come from segments within this long of each
+# other -- otherwise a charge window from an hour ago and a discharge window
+# from just now could get combined as if they were one coherent measurement,
+# exactly the "don't combine features across too different conditions/time"
+# concern raised for this estimator.
+SOH_COMBO_MAX_TIME_GAP_S = 3600.0
+# Every current deployment_package.joblib combination is characterised at the
+# dissertation's C01 case (0.1C/0.1C, see soh/README.md) -- this bench cannot
+# reliably run at that rate, which is exactly why GateSettings.crate_tolerance
+# is widened rather than left at its 35% default (see soh/online.py).
+SOH_REFERENCE_CRATE = 0.1
+# FFNN combinations don't have a single-feature correlation (rho) the way
+# soh.online.Tier was designed around -- bridge via the package's own static
+# accuracy band instead (see _judgeAndFuseFfnnObservation's docstring).
+SOH_FFNN_BAND_TIER = {"accept": Tier.HIGH, "marginal": Tier.MEDIUM}
+
+# Safety-net relay-off verification (see _measureRelayCurrent / _scheduleRelayOffVerification):
+# SET:OUTput is fire-and-forget over SCPI, so this is the only way the app can notice a relay
+# that didn't actually respond (stuck/welded contacts, dead coil, ...) instead of silently
+# trusting its own last command. Not a safety interlock by itself -- just makes a failure loud
+# instead of invisible. Delay must clear typical relay/contact-bounce and let any residual
+# inductive-load current decay before judging it a real fault, not settling noise.
+RELAY_OFF_VERIFY_DELAY_S = 1.5
+RELAY_OFF_VERIFY_CURRENT_A = 0.5
+
 BAUD_RATE = 115200
 MAX_POINTS = 1000
+# Separate, much larger retention for the quick-field SoH scan (see
+# _scanFieldWindowSoh) -- MAX_POINTS exists for chart responsiveness and would
+# throw away the early part of a multi-hour discharge long before the 10-30 min
+# window at a LATE capacity-fraction position (e.g. 70%) is even reached,
+# discovered exactly this way in testing: a real 8h discharge left only the
+# final ~80 min under MAX_POINTS, so the 10%/40% windows never had data left to
+# find, only the 70% one. This buffer is small per-sample (5 floats/group) so a
+# much longer retention costs little.
+SOH_FIELD_HISTORY_MAX_POINTS = 20000
 MAX_LOG_LINES = 200
 FILE_LOG_PERIOD = 30.0  # s, how often a line gets written to the text log files
+FILE_LOG_PERIOD_FAST = 5.0  # s, period of the optional Battery_monitor_output_5s.txt
 
 MIN_POLL_PERIOD = 0.1   # s, lower bound of Fast mode
 MAX_POLL_PERIOD = 60.0  # s, upper bound of Slow mode
@@ -98,6 +178,15 @@ SLOW_READ_TIMEOUT = 2.0
 # firmware's minimum with no margin and can occasionally read a value still influenced by
 # the previous channel (typically shows up as "channel X reads channel Y's data").
 INTER_COMMAND_DELAY = 0.05
+
+
+def _formatHorizonMinutes(minutes):
+    """Compact label for the Estimation horizon slider/log messages, e.g. 45 -> '45 min',
+    120 -> '2 h', 150 -> '2h30'."""
+    if minutes < 60:
+        return f"{minutes} min"
+    h, m = divmod(minutes, 60)
+    return f"{h} h" if m == 0 else f"{h}h{m:02d}"
 
 
 def parseNumeric(s, rangeLimit=None):
@@ -137,6 +226,7 @@ class MonitorApp:
         self.cutoffEnabled = bool(cfg["cutoff_enabled"])
         self.cutoffInitialState = bool(cfg["cutoff_initial_state"])
         self._cutoffInitialApplied = False
+        self.fastFileLogEnabled = bool(cfg["fast_file_log_enabled"])
 
         # State variables
         self.sPort = None
@@ -157,6 +247,7 @@ class MonitorApp:
         self.resY = [[] for _ in self.resistChannels]
         self.ecmY = []
         self.ecmSocY = []
+        self.ecmEkfSocY = []  # NaN where the EKF wasn't fed a real measurement (see _applyMeasurement)
         self.ecmPLossY = []
 
         self.scriptDir = os.path.dirname(os.path.abspath(__file__))
@@ -167,6 +258,14 @@ class MonitorApp:
         self.ecm = EcmModel(os.path.join(self.scriptDir, ECM_DISCHARGE_JSON),
                              os.path.join(self.scriptDir, ECM_CHARGE_JSON),
                              initialSocFraction=self.ecmInitialSocPct / 100.0)
+        # SOC via EKF (voltage-corrected, see ecm_ekf.py) -- runs alongside self.ecm,
+        # not instead of it: self.ecm stays open-loop on purpose (its "Simulated
+        # voltage" is compared AGAINST the real measurement on the chart; feeding it
+        # that same measurement would defeat the comparison). Only meaningful live
+        # (needs a real measured voltage each step), not during the Estimation
+        # projection, which has no future measurement to correct against.
+        self.ecmEkf = EcmEkfEstimator(os.path.join(self.scriptDir, ECM_DISCHARGE_JSON),
+                                       initialSocFraction=self.ecmInitialSocPct / 100.0)
         self._ecmLastTNow = None
         self._lastNetCurrent = float("nan")  # net current last fed to the ECM (per 1
                                              # cell/branch -- divided by ecmParallelCount),
@@ -185,12 +284,86 @@ class MonitorApp:
         # -- Estimation ("what if this current keeps up") -- a forward projection of
         # voltage/temperature, off by default. See _runEstimation. --
         self.estimationOn = False
-        self.estimationHorizonH = ESTIMATION_DEFAULT_H
+        self.estimationHorizonMin = ESTIMATION_DEFAULT_MIN
         self._estimationAfterId = None
         self.customVMin = float(cfg.get("custom_v_min", CELL_ABS_V_MIN))
         self.customVMax = float(cfg.get("custom_v_max", CELL_ABS_V_MAX))
         self.customTMin = float(cfg.get("custom_t_min", CELL_ABS_T_MIN))
         self.customTMax = float(cfg.get("custom_t_max", CELL_ABS_T_MAX))
+
+        # -- SoH: Maintenance validation cycle (ground-truth, Coulomb-counted) --
+        # see maintenance_cycle.py / soh/README.md. Loaded here so a prior session's
+        # SoH survives a restart, as specified.
+        self.maintenanceDischargeCutoffV = float(cfg.get("maintenance_discharge_cutoff_v", 3.35))
+        self.maintenanceChargeFullV = float(cfg.get("maintenance_charge_full_v", 4.2))
+        self.sohState = soh_store.load_state(self.scriptDir)  # {"0": {...}, "1": {...}, ...}
+        self.maintenanceCycle = None
+        self._maintenanceAfterId = None
+
+        # -- SoH: opportunistic live estimator (Phase 2, secondary/interim to the
+        # Maintenance cycle above -- see soh/README.md). Loads the pretrained
+        # deployment package once; missing/unloadable just turns the feature off,
+        # same degrade-gracefully pattern as self.fmuThermal.available. --
+        self.sohDeployment = None
+        self.sohDeploymentError = None
+        try:
+            self.sohDeployment = joblib.load(
+                os.path.join(self.scriptDir, "soh", "deployment_package.joblib"))
+        except Exception as ex:
+            self.sohDeploymentError = str(ex)
+        self.sohSteadyGate = self.sohDeployment["cc_gate"] if self.sohDeployment else SteadyStateGate()
+        self.sohGateSettings = GateSettings()  # widened crate_tolerance -- see soh/online.py
+        n = len(self.batteryChannels)
+        self.sohTrackers = []
+        for k in range(n):
+            saved = self.sohState.get(str(k), {}).get("tracker")
+            if saved:
+                self.sohTrackers.append(SohTracker(soh=saved["soh"], sigma=saved["sigma"],
+                                                    last_efc=saved.get("last_efc", 0.0)))
+            else:
+                self.sohTrackers.append(SohTracker())
+        # Session-only cumulative |Ah| throughput (all groups share one series
+        # current, so one counter covers all of them) -- EFC proxy, see
+        # _estimateEfc's docstring for the cross-session caveat.
+        self._sohAhThroughputAh = 0.0
+        self._sohLastScanT = None
+
+        # -- SoH: "quick field" estimator -- short (10-30 min), FIXED-capacity-slice
+        # window at this bench's own native ~7A rate, no Peukert extrapolation needed
+        # (unlike the MTB e14/e15 0.02C study this is ported from). Feeds the SAME
+        # per-group SohTracker as the tV-window estimator above, tagged distinctly and
+        # deliberately cautious -- see _scanFieldWindowSoh / soh/README.md. The user's
+        # own framing: "rychlá data, ne referenční" (quick data, not reference).
+        self.sohFieldDeployment = None
+        self.sohFieldDeploymentError = None
+        try:
+            self.sohFieldDeployment = joblib.load(
+                os.path.join(self.scriptDir, "soh", "deployment_package_field.joblib"))
+        except Exception as ex:
+            self.sohFieldDeploymentError = str(ex)
+        # -- dense/early grid: single-feature calibrations at many more (and much
+        # earlier) window positions than the coarse combos above, for whatever a
+        # live 15-20 min pulse happens to cover "regardless of what" (the user's own
+        # framing) -- see 09_field_window_early_grid.py and soh/README.md. Optional:
+        # the coarse package above still works fine on its own if this one is missing.
+        self.sohFieldGridDeployment = None
+        self.sohFieldGridDeploymentError = None
+        try:
+            self.sohFieldGridDeployment = joblib.load(
+                os.path.join(self.scriptDir, "soh", "deployment_package_field_grid.joblib"))
+        except Exception as ex:
+            self.sohFieldGridDeploymentError = str(ex)
+        self.sohFieldSteadyGate = (self.sohFieldDeployment["cc_gate"]
+                                    if self.sohFieldDeployment else SteadyStateGate())
+        self._sohFieldLastScanT = None
+        # Dedicated history for the quick-field scan -- see SOH_FIELD_HISTORY_MAX_POINTS's
+        # comment for why this can't just reuse self.tData/self.battY.
+        n = len(self.batteryChannels)
+        self._sohFieldT = []
+        self._sohFieldNetCurrentA = []
+        self._sohFieldSocPct = []
+        self._sohFieldTempC = []
+        self._sohFieldV = [[] for _ in range(n)]
 
         # -- Pack thermal model (24 cells, computed on a background thread). Always on
         # when the model file is available -- no user switch, see _buildControlPage. --
@@ -205,7 +378,9 @@ class MonitorApp:
         self.fileLogger = BatteryFileLogger(
             batteryLabels=[f"B{i+1:02d}" for i in range(len(self.batteryChannels))],
             tempLabels=[name for _, name in self.resistChannels])
+        self.fileLogger.setFastLoggingEnabled(self.fastFileLogEnabled)
         self._lastFileLogTime = 0.0
+        self._lastFastFileLogTime = 0.0
 
         # -- Debug log: a small always-on buffer, viewed on demand (see openLogWindow) --
         self._logLines = ["Application ready.", 'Click "Scan COM ports".']
@@ -280,10 +455,31 @@ class MonitorApp:
                                               command=self._onEstimationToggle)
         self.estimationSwitch.pack(side="left", padx=(0, 8))
 
-        self.estimationHorizonMenu = ctk.CTkOptionMenu(
-            rightBar, values=[f"{h} h" for h in ESTIMATION_HORIZONS_H], width=68,
-            command=self._onEstimationHorizonChange)
-        self.estimationHorizonMenu.set(f"{self.estimationHorizonH} h")
+        # Horizon control: slider (1 min steps up to 1 h, 30 min steps up to 24 h) plus a
+        # manual entry for an exact value the slider's grid can't land on. Both live in one
+        # frame so _onEstimationToggle can pack/pack_forget them as a single unit, same as
+        # the old dropdown.
+        self.estimationHorizonFrame = ctk.CTkFrame(rightBar, fg_color="transparent")
+
+        self.estimationHorizonValueLabel = ctk.CTkLabel(
+            self.estimationHorizonFrame, text=_formatHorizonMinutes(self.estimationHorizonMin),
+            width=44, font=ctk.CTkFont(size=12), text_color=dual("text"))
+        self.estimationHorizonValueLabel.pack(side="left", padx=(0, 4))
+
+        self.estimationHorizonSlider = ctk.CTkSlider(
+            self.estimationHorizonFrame, from_=0, to=len(ESTIMATION_MINUTES_STEPS) - 1,
+            number_of_steps=len(ESTIMATION_MINUTES_STEPS) - 1, width=130,
+            command=self._onEstimationHorizonSlide)
+        self.estimationHorizonSlider.set(ESTIMATION_MINUTES_STEPS.index(self.estimationHorizonMin))
+        self.estimationHorizonSlider.pack(side="left", padx=(0, 6))
+
+        self.estimationHorizonEntry = ctk.CTkEntry(self.estimationHorizonFrame, width=46)
+        self.estimationHorizonEntry.insert(0, str(self.estimationHorizonMin))
+        self.estimationHorizonEntry.bind("<Return>", self._onEstimationHorizonEntryChange)
+        self.estimationHorizonEntry.bind("<FocusOut>", self._onEstimationHorizonEntryChange)
+        self.estimationHorizonEntry.pack(side="left", padx=(0, 4))
+        ctk.CTkLabel(self.estimationHorizonFrame, text="min", font=ctk.CTkFont(size=11),
+                     text_color=dual("text_secondary")).pack(side="left")
         # only packed while estimation is on -- see _onEstimationToggle
 
         resolved = ctk.get_appearance_mode()
@@ -549,12 +745,19 @@ class MonitorApp:
         self.cutoffStatusLabel.pack(anchor="w", padx=12, pady=(0, 10))
 
         # -- ECM model (1 cell) --
-        ecmFrame = self._card(parent, "ECM model (1 cell, no Kalman filter)", expanded=False)
+        ecmFrame = self._card(parent, "ECM model (1 cell)", expanded=False)
 
-        self.ecmSocLabel = ctk.CTkLabel(ecmFrame, text=f"SOC: {self.ecm.soc*100:.1f} %",
+        self.ecmSocLabel = ctk.CTkLabel(ecmFrame, text=f"SOC (Coulomb counting): {self.ecm.soc*100:.1f} %",
                                          font=ctk.CTkFont(size=13, weight="bold"),
                                          text_color=dual("text_secondary"))
         self.ecmSocLabel.pack(anchor="w", padx=12, pady=(0, 2))
+        # EKF SOC (see ecm_ekf.py) -- voltage-corrected, live only (needs a real
+        # measured voltage each step, see _applyMeasurement); stays "--" for
+        # loadTestFile/loadCurrentProfile replay and the Estimation projection.
+        self.ecmEkfSocLabel = ctk.CTkLabel(
+            ecmFrame, text=f"SOC (EKF): {self.ecmEkf.soc*100:.1f} % ± {self.ecmEkf.socSigma*100:.1f} pp",
+            font=ctk.CTkFont(size=13, weight="bold"), text_color=dual("text_secondary"))
+        self.ecmEkfSocLabel.pack(anchor="w", padx=12, pady=(0, 2))
         self.ecmVoltageLabel = ctk.CTkLabel(ecmFrame, text="Simulated voltage: --- V",
                                              font=ctk.CTkFont(size=12),
                                              text_color=dual("text_secondary"))
@@ -562,7 +765,21 @@ class MonitorApp:
         self.ecmModeLabel = ctk.CTkLabel(ecmFrame, text="Mode: —  ·  Model temperature: --- °C",
                                           font=ctk.CTkFont(size=11),
                                           text_color=dual("text_secondary"))
-        self.ecmModeLabel.pack(anchor="w", padx=12, pady=(0, 8))
+        self.ecmModeLabel.pack(anchor="w", padx=12, pady=(0, 4))
+
+        # -- small SOC sparkline: Coulomb counting vs EKF over this session -- --
+        self.ecmSocFig = Figure(dpi=100, figsize=(2.8, 1.3))
+        self.ecmSocAx = self.ecmSocFig.add_subplot(111)
+        self.ecmSocAx.set_ylabel("SOC [%]", fontsize=8)
+        self.ecmSocAx.tick_params(labelsize=7)
+        (self.ecmSocLine,) = self.ecmSocAx.plot([], [], "-", linewidth=1.1, color=GRAY,
+                                                  label="CC")
+        (self.ecmEkfSocLine,) = self.ecmSocAx.plot([], [], "-", linewidth=1.1, color=ACCENT,
+                                                     label="EKF")
+        self.ecmSocAx.legend(fontsize=7, loc="lower left", frameon=False)
+        self.ecmSocFig.subplots_adjust(left=0.24, right=0.96, top=0.94, bottom=0.24)
+        self.ecmSocCanvas = FigureCanvasTkAgg(self.ecmSocFig, master=ecmFrame)
+        self.ecmSocCanvas.get_tk_widget().pack(fill="x", padx=12, pady=(0, 8))
 
         ecmRow = ctk.CTkFrame(ecmFrame, fg_color="transparent")
         ecmRow.pack(fill="x", padx=12, pady=(0, 4))
@@ -602,6 +819,23 @@ class MonitorApp:
 
         # -- Data --
         dataFrame = self._card(parent, "Data", expanded=False)
+
+        self.fastFileLogVar = ctk.BooleanVar(value=self.fastFileLogEnabled)
+        self.fastFileLogSwitch = ctk.CTkSwitch(
+            dataFrame, text=f"Also log every {FILE_LOG_PERIOD_FAST:.0f} s (Battery_monitor_output_5s.txt)",
+            variable=self.fastFileLogVar, onvalue=True, offvalue=False,
+            progress_color=GREEN, text_color=dual("text"),
+            command=self._toggleFastFileLog)
+        self.fastFileLogSwitch.pack(fill="x", padx=12, pady=(4, 4))
+        ctk.CTkLabel(dataFrame,
+                     text="Same format as Battery_monitor_output.txt, just a separate file "
+                          f"written every {FILE_LOG_PERIOD_FAST:.0f} s instead of every "
+                          f"{FILE_LOG_PERIOD:.0f} s -- for analysis that needs finer time "
+                          "resolution than the normal log. The normal log keeps writing "
+                          "either way.",
+                     font=ctk.CTkFont(size=10), text_color=dual("text_secondary"),
+                     wraplength=270, justify="left").pack(anchor="w", padx=12, pady=(0, 12))
+
         ctk.CTkButton(dataFrame, text="🗑  Clear data and chart", fg_color="transparent",
                       border_width=1, border_color=dual("border"), text_color=dual("text"),
                       command=self.clearData).pack(fill="x", padx=12, pady=4)
@@ -779,9 +1013,10 @@ class MonitorApp:
         """Pack layout view: one column per series group (B01..B0n), each drawn as
         `self.ecmParallelCount` pouch cells side by side -- the parallel group really is
         wired/measured as one battery (a single voltage channel), the extra pouches are
-        purely a physical-layout illustration of the Ns*Np pack. SoH is a placeholder
-        (no estimation algorithm exists yet -- see _refreshHealthPage); the balance
-        figure is real, computed from the actual logged data."""
+        purely a physical-layout illustration of the Ns*Np pack. SoH comes from the
+        Maintenance validation cycle below (ground truth, Coulomb-counted -- see
+        maintenance_cycle.py); the balance figure is computed from the actual logged
+        data, independent of SoH."""
         parent.grid_columnconfigure(0, weight=1)
         parent.grid_rowconfigure(1, weight=1)
 
@@ -810,6 +1045,7 @@ class MonitorApp:
             gridCard.grid_columnconfigure(k, weight=1)
 
         self.healthSohLabels = []
+        self.healthOpportunisticLabels = []
         self.healthPouches = []
         self.healthAvgLabels = []
         self.healthDevLabels = []
@@ -819,11 +1055,19 @@ class MonitorApp:
 
             ctk.CTkLabel(col, text=f"B{k+1:02d}", font=ctk.CTkFont(size=13, weight="bold"),
                          text_color=dual("text")).pack(pady=(12, 2))
-            # SoH estimation isn't implemented yet -- placeholder slot, see class docstring.
+            # Filled from self.sohState by _updateSohLabels() -- last Maintenance result,
+            # or "—" if this group has never completed one.
             sohLabel = ctk.CTkLabel(col, text="SoH: —", font=ctk.CTkFont(size=11),
                                      text_color=dual("text_secondary"))
-            sohLabel.pack(pady=(0, 8))
+            sohLabel.pack(pady=(0, 2))
             self.healthSohLabels.append(sohLabel)
+            # Secondary, lower-trust figure -- opportunistic live estimate between
+            # Maintenance runs (Phase 2, see soh/README.md). Never overwrites the
+            # Maintenance SoH above; blank until at least one candidate is fused.
+            oppLabel = ctk.CTkLabel(col, text="", font=ctk.CTkFont(size=10),
+                                     text_color=dual("text_secondary"))
+            oppLabel.pack(pady=(0, 8))
+            self.healthOpportunisticLabels.append(oppLabel)
 
             pouchRow = ctk.CTkFrame(col, fg_color="transparent")
             pouchRow.pack(pady=(0, 8))
@@ -844,6 +1088,694 @@ class MonitorApp:
                                      text_color=dual("text_secondary"))
             devLabel.pack(pady=(0, 12))
             self.healthDevLabels.append(devLabel)
+
+        self._buildMaintenanceCard(parent)
+        self._buildSohHistoryCard(parent)
+        self._readSohHistoryFromLog()
+        self._refreshSohHistoryChart()
+        self._updateSohLabels()
+
+    def _buildMaintenanceCard(self, parent):
+        """Guided validation cycle: charge to full -> rest -> constant-current
+        discharge to a cutoff -> Coulomb-counted Q -> SOH = 100*Q/Q_ref (own first-ever
+        cycle, per group). This is the authoritative/ground-truth SoH source -- see
+        maintenance_cycle.py. Requires an active live measurement (reuses the same
+        serial stream _applyMeasurement already processes, see _maintenanceOnSample)."""
+        card = ctk.CTkFrame(parent, corner_radius=16, fg_color=dual("card_bg"),
+                             border_width=1, border_color=dual("border"))
+        card.grid(row=2, column=0, sticky="new", padx=16, pady=(0, 16))
+
+        ctk.CTkLabel(card, text="Maintenance cycle", font=ctk.CTkFont(size=16, weight="bold"),
+                     text_color=dual("text")).pack(anchor="w", padx=20, pady=(16, 2))
+        ctk.CTkLabel(card,
+                     text="Charge to full -> rest 2 h -> constant-current discharge to "
+                          f"{self.maintenanceDischargeCutoffV:.2f} V/cell. Tracks Coulomb-counted "
+                          "Q and reports ground-truth SOH per group when it finishes. Charge/"
+                          "discharge end is judged from the single weakest/strongest cell, not "
+                          "an average, so one weak group can't be over-discharged while the "
+                          "others still look fine. Runs alongside a normal live measurement.",
+                     font=ctk.CTkFont(size=11), text_color=dual("text_secondary"),
+                     wraplength=900, justify="left").pack(anchor="w", padx=20, pady=(0, 10))
+
+        row = ctk.CTkFrame(card, fg_color="transparent")
+        row.pack(fill="x", padx=20, pady=(0, 6))
+        self.btnMaintenanceStart = ctk.CTkButton(row, text="▶  Start Maintenance cycle",
+                                                  command=self._startMaintenanceCycle)
+        self.btnMaintenanceStart.pack(side="left", padx=(0, 8))
+        self.btnMaintenanceAdvance = ctk.CTkButton(
+            row, text="Force advance phase", fg_color="transparent",
+            border_width=1, border_color=dual("border"), text_color=dual("text"),
+            state="disabled", command=self._forceAdvanceMaintenanceCycle)
+        self.btnMaintenanceAdvance.pack(side="left", padx=(0, 8))
+        self.btnMaintenanceAbort = ctk.CTkButton(
+            row, text="Abort", fg_color="transparent", border_width=1, border_color=RED,
+            text_color=RED, state="disabled", command=self._abortMaintenanceCycle)
+        self.btnMaintenanceAbort.pack(side="left")
+
+        self.maintenanceStatusLabel = ctk.CTkLabel(
+            card, text="Idle -- start a live measurement, then start the cycle.",
+            font=ctk.CTkFont(size=13, weight="bold"), text_color=dual("text"))
+        self.maintenanceStatusLabel.pack(anchor="w", padx=20, pady=(6, 2))
+        self.maintenanceLiveLabel = ctk.CTkLabel(
+            card, text="", font=ctk.CTkFont(size=12), text_color=dual("text_secondary"))
+        self.maintenanceLiveLabel.pack(anchor="w", padx=20, pady=(0, 16))
+
+    def _buildSohHistoryCard(self, parent):
+        """SoH over calendar time, per group -- a real date axis (not session-relative
+        like the main chart), since a meaningful trend spans days/weeks/months across
+        many sessions. Line = opportunistic tracked estimate (secondary); diamond
+        markers = Maintenance-cycle ground truth (authoritative). Backed by
+        soh_log.csv, read once at build time (_readSohHistoryFromLog) and appended to
+        in-memory from then on (_onMaintenanceComplete / _judgeAndFuseFfnnObservation)
+        rather than re-reading the file on every update."""
+        card = ctk.CTkFrame(parent, corner_radius=16, fg_color=dual("card_bg"),
+                             border_width=1, border_color=dual("border"))
+        card.grid(row=3, column=0, sticky="new", padx=16, pady=(0, 16))
+
+        ctk.CTkLabel(card, text="SoH history", font=ctk.CTkFont(size=16, weight="bold"),
+                     text_color=dual("text")).pack(anchor="w", padx=20, pady=(16, 2))
+        ctk.CTkLabel(card,
+                     text="Lines are the opportunistic live estimate (secondary); diamond "
+                          "markers are Maintenance-cycle ground truth (authoritative). "
+                          "X axis is real calendar time -- this spans sessions, not just "
+                          "the current one.",
+                     font=ctk.CTkFont(size=11), text_color=dual("text_secondary"),
+                     wraplength=900, justify="left").pack(anchor="w", padx=20, pady=(0, 8))
+
+        self.sohFig = Figure(dpi=100, figsize=(6, 2.4))
+        self.sohAx = self.sohFig.add_subplot(111)
+        self.sohAx.set_ylabel("SoH [%]")
+        self.sohAx.xaxis_date()
+
+        colorCycle = matplotlib.rcParams["axes.prop_cycle"].by_key()["color"]
+        self.sohLines = []
+        self.sohMaintScatters = []
+        for k in range(len(self.batteryChannels)):
+            color = colorCycle[k % len(colorCycle)]
+            (line,) = self.sohAx.plot([], [], "-", linewidth=1.3, color=color,
+                                       label=f"B{k + 1:02d}")
+            self.sohLines.append(line)
+            scatter = self.sohAx.scatter([], [], marker="D", s=36, color=color,
+                                          edgecolor="white", linewidth=0.6, zorder=5)
+            self.sohMaintScatters.append(scatter)
+        self.sohAx.legend(loc="upper left", bbox_to_anchor=(1.01, 1.0), fontsize=8,
+                           borderaxespad=0.0, frameon=True)
+        self.sohFig.subplots_adjust(left=0.08, right=0.85, top=0.95, bottom=0.22)
+        self.sohFig.autofmt_xdate(rotation=20, ha="right")
+
+        self.sohCanvas = FigureCanvasTkAgg(self.sohFig, master=card)
+        self.sohCanvas.get_tk_widget().pack(fill="both", expand=True, padx=20, pady=(0, 16))
+
+    def _readSohHistoryFromLog(self):
+        """(Re)builds the in-memory SoH-over-time series per group from soh_log.csv --
+        called once at page build; new points are appended directly from then on
+        (see _onMaintenanceComplete / _judgeAndFuseFfnnObservation), not re-read."""
+        n = len(self.batteryChannels)
+        self.sohHistoryT = [[] for _ in range(n)]
+        self.sohHistorySoh = [[] for _ in range(n)]
+        self.sohHistoryKind = [[] for _ in range(n)]
+        path = os.path.join(self.scriptDir, soh_store.LOG_FILENAME)
+        if not os.path.exists(path):
+            return
+        groupIndex = {f"B{k + 1:02d}": k for k in range(n)}
+        try:
+            with open(path, "r", encoding="utf-8", newline="") as f:
+                for row in csv.DictReader(f):
+                    k = groupIndex.get(row.get("group"))
+                    if k is None or row.get("run_type") == "opportunistic" and row.get("accepted") != "True":
+                        continue
+                    try:
+                        t = datetime.fromisoformat(row["time_iso"])
+                        soh = float(row["soh_pct"])
+                    except (ValueError, KeyError, TypeError):
+                        continue
+                    self.sohHistoryT[k].append(t)
+                    self.sohHistorySoh[k].append(soh)
+                    self.sohHistoryKind[k].append(row.get("run_type", ""))
+        except Exception as ex:
+            self.logMsg(f"[!] Could not read soh_log.csv for the SoH history chart: {ex}")
+
+    def _appendSohHistory(self, k, t, soh, kind):
+        self.sohHistoryT[k].append(t)
+        self.sohHistorySoh[k].append(soh)
+        self.sohHistoryKind[k].append(kind)
+
+    def _refreshSohHistoryChart(self):
+        allT, allSoh = [], []
+        for k in range(len(self.batteryChannels)):
+            oppT = [mdates.date2num(t) for t, kind in zip(self.sohHistoryT[k], self.sohHistoryKind[k])
+                    if kind == "opportunistic"]
+            oppSoh = [s for s, kind in zip(self.sohHistorySoh[k], self.sohHistoryKind[k])
+                      if kind == "opportunistic"]
+            self.sohLines[k].set_data(oppT, oppSoh)
+
+            maintT = [mdates.date2num(t) for t, kind in zip(self.sohHistoryT[k], self.sohHistoryKind[k])
+                      if kind == "maintenance"]
+            maintSoh = [s for s, kind in zip(self.sohHistorySoh[k], self.sohHistoryKind[k])
+                        if kind == "maintenance"]
+            if maintT:
+                self.sohMaintScatters[k].set_offsets(np.column_stack([maintT, maintSoh]))
+            else:
+                self.sohMaintScatters[k].set_offsets(np.empty((0, 2)))
+
+            allT.extend(oppT)
+            allT.extend(maintT)
+            allSoh.extend(oppSoh)
+            allSoh.extend(maintSoh)
+
+        # A degenerate Maintenance result (e.g. Force-advanced through Discharging
+        # with no samples yet -- Q=0/0) can produce a NaN/inf SOH; matplotlib raises
+        # on a non-finite axis limit, which must not take down the whole app over a
+        # chart refresh. Drop non-finite pairs rather than let that propagate.
+        finitePairs = [(t, s) for t, s in zip(allT, allSoh) if np.isfinite(t) and np.isfinite(s)]
+        if finitePairs:
+            finiteT, finiteSoh = zip(*finitePairs)
+            tLo, tHi = min(finiteT), max(finiteT)
+            tPad = max(0.03 * (tHi - tLo), 0.02)
+            self.sohAx.set_xlim(tLo - tPad, tHi + tPad)
+            sLo, sHi = min(finiteSoh), max(finiteSoh)
+            sPad = max(0.05 * (sHi - sLo), 1.0)
+            self.sohAx.set_ylim(sLo - sPad, sHi + sPad)
+        self.sohCanvas.draw_idle()
+
+    def _updateSohLabels(self):
+        """Reflect self.sohState (persisted Maintenance results, authoritative) and
+        self.sohTrackers (opportunistic, secondary -- Phase 2) onto the pack grid.
+        Called on page build, after every completed/aborted Maintenance cycle, and
+        after every fused opportunistic candidate."""
+        for k in range(len(self.batteryChannels)):
+            entry = self.sohState.get(str(k))
+            if entry is None or entry.get("last_soh_pct") is None:
+                self.healthSohLabels[k].configure(text="SoH: —", text_color=dual("text_secondary"))
+            else:
+                soh = entry["last_soh_pct"]
+                color = GREEN if soh >= 90.0 else ORANGE if soh >= 80.0 else RED
+                self.healthSohLabels[k].configure(text=f"SoH: {soh:.1f} %", text_color=color)
+
+            tracker = self.sohTrackers[k]
+            if tracker.history:
+                self.healthOpportunisticLabels[k].configure(
+                    text=f"live est.: {tracker.soh:.1f} % ± {tracker.sigma:.1f}")
+            else:
+                self.healthOpportunisticLabels[k].configure(text="")
+
+    # ------------------------------------------------------------------
+    # MAINTENANCE CYCLE (ground-truth SoH -- see maintenance_cycle.py)
+    def _startMaintenanceCycle(self):
+        if not self.measuring:
+            self.logMsg("[!] Start a live measurement before starting the Maintenance cycle.")
+            return
+        if self.maintenanceCycle is not None and self.maintenanceCycle.phase not in (
+                MaintPhase.IDLE, MaintPhase.DONE, MaintPhase.ABORTED):
+            return
+
+        n = len(self.batteryChannels)
+        qRef = [self.sohState.get(str(k), {}).get("q_ref_mah") for k in range(n)]
+        self.maintenanceCycle = MaintenanceCycle(
+            n, q_ref_mah=qRef,
+            discharge_cutoff_v=self.maintenanceDischargeCutoffV,
+            charge_full_v=self.maintenanceChargeFullV)
+        self.maintenanceCycle.start(self.tData[-1] if self.tData else 0.0)
+
+        # Charging: source (IN) connected, load (OUT) disconnected.
+        self._setRelayImmediate(self.relayInCh, True, "Maintenance cycle: charging")
+        self._setRelayImmediate(self.relayOutCh, False, "Maintenance cycle: charging")
+
+        self.btnMaintenanceStart.configure(state="disabled")
+        self.btnMaintenanceAdvance.configure(state="normal")
+        self.btnMaintenanceAbort.configure(state="normal")
+        self.logMsg("[Maintenance] Cycle started -- charging.")
+        self._refreshMaintenanceStatus()
+
+    def _abortMaintenanceCycle(self):
+        if self.maintenanceCycle is None:
+            return
+        self.maintenanceCycle.abort()
+        self._setRelayImmediate(self.relayInCh, False, "Maintenance cycle aborted")
+        self._setRelayImmediate(self.relayOutCh, False, "Maintenance cycle aborted")
+        self.logMsg("[Maintenance] Cycle aborted by user.")
+        self._onMaintenanceCycleEnded()
+
+    def _forceAdvanceMaintenanceCycle(self):
+        """Manual override for when the automatic charge-complete/rest-elapsed
+        detection doesn't fire reliably for this bench's actual charge source --
+        see MaintenanceCycle's own docstring. Forcing past DISCHARGING ends the
+        cycle with whatever Q has accumulated so far, same as reaching the cutoff
+        would -- a deliberate early stop, not an abort."""
+        if self.maintenanceCycle is None or not self.tData:
+            return
+        oldPhase = self.maintenanceCycle.phase
+        self.maintenanceCycle.force_advance(self.tData[-1])
+        if self.maintenanceCycle.phase != oldPhase:
+            self._onMaintenancePhaseChanged(oldPhase)
+
+    def _maintenanceOnSample(self, tNow, battery, packCurrent, temperatureC):
+        """Hooked from _applyMeasurement -- the Maintenance cycle rides the same
+        live serial stream as everything else, no separate polling loop."""
+        cyc = self.maintenanceCycle
+        if cyc is None or cyc.phase in (MaintPhase.IDLE, MaintPhase.DONE, MaintPhase.ABORTED):
+            return
+        oldPhase = cyc.phase
+        cyc.on_sample(tNow, battery, packCurrent, temperatureC)
+        if cyc.phase != oldPhase:
+            self._onMaintenancePhaseChanged(oldPhase)
+        self._refreshMaintenanceStatus()
+
+    def _onMaintenancePhaseChanged(self, oldPhase):
+        cyc = self.maintenanceCycle
+        if cyc.phase == MaintPhase.RESTING:
+            self._setRelayImmediate(self.relayInCh, False, "Maintenance cycle: resting")
+            self._setRelayImmediate(self.relayOutCh, False, "Maintenance cycle: resting")
+            self.logMsg("[Maintenance] Charging done -- resting.")
+        elif cyc.phase == MaintPhase.DISCHARGING:
+            self._setRelayImmediate(self.relayOutCh, True, "Maintenance cycle: discharging")
+            self.logMsg("[Maintenance] Rest done -- discharging.")
+        elif cyc.phase == MaintPhase.DONE:
+            self._setRelayImmediate(self.relayOutCh, False, "Maintenance cycle: done")
+            self._onMaintenanceComplete()
+        self._refreshMaintenanceStatus()
+
+    def _onMaintenanceComplete(self):
+        cyc = self.maintenanceCycle
+        if not cyc.results or not all(np.isfinite(r["soh_pct"]) and r["q_mah"] > 0 for r in cyc.results):
+            # Degenerate result -- e.g. "Force advance phase" clicked through
+            # Discharging before any real sample arrived (Q=0/0 -> NaN). Don't
+            # persist/log/chart a result that would look like a real measurement
+            # but isn't; see maintenance_cycle.MaintenanceCycle._finish.
+            self.logMsg("[Maintenance] [!] Cycle ended with no usable discharge data "
+                        "(0 mAh measured) -- not recording a SOH result.")
+            self._onMaintenanceCycleEnded()
+            return
+        now = datetime.now()
+        nowIso = now.isoformat(timespec="seconds")
+        for k, result in enumerate(cyc.results):
+            entry = self.sohState.setdefault(str(k), {})
+            entry["q_ref_mah"] = result["q_ref_mah"]
+            entry["last_soh_pct"] = result["soh_pct"]
+            entry["last_cycle_at"] = nowIso
+            entry["last_q_mah"] = result["q_mah"]
+            soh_store.append_log({
+                "time_iso": nowIso, "group": f"B{k+1:02d}", "run_type": "maintenance",
+                "soh_pct": result["soh_pct"], "q_mah": result["q_mah"],
+                "q_ref_mah": result["q_ref_mah"], "temperature_c": cyc.temperature_c,
+                "cutoff_v": self.maintenanceDischargeCutoffV,
+            }, self.scriptDir)
+            self._appendSohHistory(k, now, result["soh_pct"], "maintenance")
+        soh_store.save_state(self.sohState, self.scriptDir)
+        self._updateSohLabels()
+        self._refreshSohHistoryChart()
+        self.logMsg("[Maintenance] Cycle complete. SOH: " +
+                    ", ".join(f"B{k+1:02d}={r['soh_pct']:.1f}%" for k, r in enumerate(cyc.results)))
+        self._onMaintenanceCycleEnded()
+
+    def _onMaintenanceCycleEnded(self):
+        self.btnMaintenanceStart.configure(state="normal")
+        self.btnMaintenanceAdvance.configure(state="disabled")
+        self.btnMaintenanceAbort.configure(state="disabled")
+        self._refreshMaintenanceStatus()
+
+    def _refreshMaintenanceStatus(self):
+        cyc = self.maintenanceCycle
+        if cyc is None or cyc.phase == MaintPhase.IDLE:
+            self.maintenanceStatusLabel.configure(
+                text="Idle -- start a live measurement, then start the cycle.")
+            self.maintenanceLiveLabel.configure(text="")
+            return
+        phaseText = {
+            MaintPhase.CHARGING: "Charging", MaintPhase.RESTING: "Resting",
+            MaintPhase.DISCHARGING: "Discharging", MaintPhase.DONE: "Done",
+            MaintPhase.ABORTED: "Aborted",
+        }[cyc.phase]
+        self.maintenanceStatusLabel.configure(text=f"Phase: {phaseText}")
+        if cyc.phase == MaintPhase.DISCHARGING and cyc.t_rel:
+            self.maintenanceLiveLabel.configure(
+                text=f"Elapsed {cyc.t_rel[-1] / 60.0:.1f} min  ·  Q so far: {cyc.q_mah:.1f} mAh"
+                     + (f"  ·  I = {cyc.i[-1]:.2f} A" if cyc.i else ""))
+        elif cyc.phase == MaintPhase.DONE and cyc.results:
+            self.maintenanceLiveLabel.configure(
+                text="  ·  ".join(f"B{k+1:02d}: {r['soh_pct']:.1f}%"
+                                   for k, r in enumerate(cyc.results)))
+        else:
+            self.maintenanceLiveLabel.configure(text="")
+
+    # ------------------------------------------------------------------
+    # OPPORTUNISTIC SoH (Phase 2, secondary/interim -- see soh/README.md)
+    def _estimateEfc(self, k):
+        """Equivalent full cycles for group k's SohTracker (Kalman drift widening).
+        Approximated from cumulative |Ah| throughput THIS SESSION ONLY -- there is
+        no persisted lifetime throughput counter yet, so a freshly restarted
+        session under-counts EFC and the tracker's uncertainty grows slower across
+        a restart than it truly should. Falls back to the dissertation's nominal
+        capacity if this group has no Maintenance-cycle Q_ref yet."""
+        qRefMah = self.sohState.get(str(k), {}).get("q_ref_mah")
+        qRefAh = (qRefMah / 1000.0) if qRefMah else (sohConfig.C_NOMINAL_MAH / 1000.0)
+        if qRefAh <= 0:
+            return 0.0
+        return self._sohAhThroughputAh / (2.0 * qRefAh)
+
+    def _buildLiveCurrentSeries(self):
+        """(t, iMa, tempSeries) for the whole live session so far, shared by both
+        opportunistic scanners (_scanOpportunisticSoh / _scanFieldWindowSoh) --
+        one series current for the whole pack, no reason to rebuild it twice.
+        Returns (None, None, None) if the arrays aren't aligned yet."""
+        t = np.asarray(self.tData, dtype=float)
+        if len(self.currY) < 2 or len(self.currY[0]) != t.size or len(self.currY[1]) != t.size:
+            return None, None, None
+        netA = np.array([
+            (self.currY[1][j] - self.currY[0][j]) / self.ecmParallelCount
+            if (self.currY[0][j] == self.currY[0][j] and self.currY[1][j] == self.currY[1][j])
+            else float("nan")
+            for j in range(t.size)
+        ])
+        # Sign flip: this app's convention is I>0=discharge (matches ecm_model.py,
+        # cutoff_logic.py, everywhere else in BatteryMonitorGUI.py); soh.online's
+        # scan_segments (vendored from the dissertation's battlib) uses the opposite,
+        # I>0=charge -- its own masks are literally `i > threshold` for "charge" and
+        # `i < -threshold` for "discharge". Feeding it unflipped silently swaps every
+        # charge/discharge classification instead of erroring, which is exactly what
+        # happened during testing (a real discharge segment came back labeled
+        # "charge" and never matched any discharge-side window).
+        iMa = -netA * 1000.0
+        tempSeries = None
+        if self.resY and len(self.resY[self.ecmTempSourceIndex]) == t.size:
+            tempSeries = np.asarray(self.resY[self.ecmTempSourceIndex], dtype=float)
+        return t, iMa, tempSeries
+
+    def _scanOpportunisticSoh(self, tNow):
+        """Look for a usable constant-current segment in the recent live history and
+        time it against the pretrained deployment package's voltage windows -- the
+        opportunistic, secondary SoH source (Maintenance cycle stays authoritative).
+        Throttled to SOH_OPPORTUNISTIC_SCAN_S: a new qualifying segment doesn't
+        appear every poll tick, rescanning that often would just be wasted work."""
+        if self.sohDeployment is not None and self.tData and (
+                self._sohLastScanT is None or tNow - self._sohLastScanT >= SOH_OPPORTUNISTIC_SCAN_S):
+            self._sohLastScanT = tNow
+            t, iMa, tempSeries = self._buildLiveCurrentSeries()
+            if t is not None:
+                ready, reason = self.sohSteadyGate.ready(t, iMa)
+                if ready:
+                    for k in range(len(self.batteryChannels)):
+                        v = np.asarray(self.battY[k], dtype=float)
+                        if v.size == t.size:
+                            self._scanGroupForFfnnObservation(k, t, v, iMa, tempSeries, tNow)
+
+        self._scanFieldWindowSoh(tNow)
+
+    def _scanFieldWindowSoh(self, tNow):
+        """'Quick field' SoH -- see soh/field_window.py and
+        08_field_window_deployment.py. A discharge-only, fixed-capacity-slice
+        sibling of _scanOpportunisticSoh: same steady-state precondition, same
+        throttle, different feature (delta-V over a 10-30 minute window at this
+        bench's own native ~7A rate, instead of timing a voltage crossing).
+        Deliberately the lowest-trust source -- see soh/README.md -- but feeds the
+        SAME per-group SohTracker as the tV-window estimator, so whichever source
+        is more accurate at the moment naturally outweighs the other; no separate
+        trust-tier bookkeeping needed.
+
+        Capacity positioning: a live partial window can't know its own total
+        discharge capacity the way a completed lab RPT can (that is the entire
+        point of not running a full discharge) -- this uses the group's own last
+        Maintenance-cycle Q_ref (nominal capacity as a bootstrap before any
+        Maintenance cycle has run) together with the live SOC estimate (EKF,
+        preferred; Coulomb counting as a fallback) to know where a live discharge
+        sits relative to a hypothetical 100%->0% span, without completing one.
+
+        Two data sources, same as _scanOpportunisticSoh's own retroactive-scan
+        support for loadTestFile(): live streaming fills the dedicated
+        _sohField* buffers (see _applyMeasurement) because self.tData/self.battY
+        get MAX_POINTS-trimmed and would silently drop early-discharge history;
+        a loaded test file instead sets self.tData/self.battY ONCE to the WHOLE,
+        uncapped file and never touches _sohField*, so this falls back to those
+        plus the open-loop self.ecmSocY (self.ecmEkfSocY is deliberately all-NaN
+        for a replayed file -- the EKF only runs live, see loadTestFile)."""
+        if self.sohFieldDeployment is None:
+            return
+        if (self._sohFieldLastScanT is not None
+                and tNow - self._sohFieldLastScanT < SOH_OPPORTUNISTIC_SCAN_S):
+            return
+
+        if self._sohFieldT:
+            t = np.asarray(self._sohFieldT, dtype=float)
+            iMa = -np.asarray(self._sohFieldNetCurrentA, dtype=float) * 1000.0
+            socPct = np.asarray(self._sohFieldSocPct, dtype=float)
+            tempSeries = np.asarray(self._sohFieldTempC, dtype=float)
+            vSeries = self._sohFieldV
+        else:
+            t, iMa, tempSeries = self._buildLiveCurrentSeries()
+            if t is None:
+                return
+            ekfSoc = (np.asarray(self.ecmEkfSocY, dtype=float)
+                      if len(self.ecmEkfSocY) == t.size else np.full(t.size, np.nan))
+            olSoc = (np.asarray(self.ecmSocY, dtype=float)
+                     if len(self.ecmSocY) == t.size else np.full(t.size, np.nan))
+            if not np.isfinite(ekfSoc).any() and not np.isfinite(olSoc).any():
+                return
+            socPct = np.where(np.isfinite(ekfSoc), ekfSoc, olSoc)
+            vSeries = self.battY
+        self._sohFieldLastScanT = tNow
+
+        # Sign flip to soh.online's convention (I>0=charge) -- see
+        # _buildLiveCurrentSeries's comment for why this matters.
+        ready, reason = self.sohFieldSteadyGate.ready(t, iMa)
+        if not ready:
+            return
+
+        for k in range(len(self.batteryChannels)):
+            v = np.asarray(vSeries[k], dtype=float)
+            if v.size != t.size:
+                continue
+            qRefMah = self.sohState.get(str(k), {}).get("q_ref_mah") or sohConfig.C_NOMINAL_MAH
+            qdMah = (1.0 - socPct / 100.0) * qRefMah
+            self._scanGroupForFieldWindowObservation(k, t, v, iMa, qdMah, qRefMah, tempSeries, tNow)
+
+    def _scanGroupForFieldWindowObservation(self, k, t, v, iMa, qdMah, qRefMah, tempSeries, tNow):
+        deployment = self.sohFieldDeployment
+        discharging = iMa < -abs(sohConfig.I_THRESHOLD_MA)
+        if not discharging.any():
+            return
+        temperatureC = float(np.nanmean(tempSeries[discharging])) if tempSeries is not None else float("nan")
+        crateDischarge = float(np.nanpercentile(np.abs(iMa[discharging]), 95) / sohConfig.C_NOMINAL_MAH)
+
+        # Longest duration first -- "cim del tim lepe", per spec -- falling back to
+        # shorter tiers only if the pack hasn't held a steady discharge long enough
+        # yet for the longer one's windows to be fully covered.
+        for durationEntry in sorted(deployment["meta"]["durations"], key=lambda d: -d["minutes"]):
+            minutes = durationEntry["minutes"]
+            dqMah = durationEntry["dQ_mAh"]
+            models_ = deployment["models"][minutes]
+
+            for comboMeta in durationEntry["combinations"]:  # already ordered best3, best2, best1
+                model = models_.get(comboMeta["name"])
+                if model is None:
+                    continue
+
+                featureValues = {}
+                ok = True
+                for win in comboMeta["windows"]:
+                    coverage = window_capacity_coverage(qdMah[discharging], win["centre_frac"],
+                                                         dqMah, qRefMah)
+                    if coverage < 0.98:
+                        ok = False
+                        break
+                    dv = capacity_window_dv(qdMah[discharging], v[discharging],
+                                             win["centre_frac"], dqMah, qRefMah)
+                    if not np.isfinite(dv):
+                        ok = False
+                        break
+                    featureValues[win["raw_name"]] = dv
+                if not ok:
+                    continue
+
+                frame = pd.DataFrame([featureValues])[model.features]
+                predictedSoh = float(model.predict(frame)[0])
+                self._judgeAndFuseFfnnObservation(
+                    k, comboMeta, predictedSoh, tNow,
+                    float("nan"), crateDischarge, temperatureC,
+                    runType="quick_field", sourceLabel=f"quick field {minutes}min")
+                return  # longest/best available combo for this group this scan
+
+        # None of the coarse (10%-90% step 10%) multi-feature combos are covered
+        # yet -- fall back to the dense/early single-feature grid (09_field_window_
+        # early_grid.py), sorted best-accuracy-first, and use whichever position the
+        # discharge has ACTUALLY reached so far. This is what makes the estimator
+        # usable "regardless of what" (the user's own framing) instead of requiring
+        # a specific pre-planned window: most single-feature grid entries near the
+        # start of a discharge are reachable within 10-30 minutes total, unlike the
+        # coarse combos above (their easiest position alone needs 70+ minutes).
+        gridDeployment = self.sohFieldGridDeployment
+        if gridDeployment is not None:
+            for entry in gridDeployment["meta"]["entries"]:  # pre-sorted, best val_rmse first
+                win = entry["window"]
+                coverage = window_capacity_coverage(qdMah[discharging], win["centre_frac"],
+                                                     win["dQ_mAh"], qRefMah)
+                if coverage < 0.98:
+                    continue
+                dv = capacity_window_dv(qdMah[discharging], v[discharging],
+                                         win["centre_frac"], win["dQ_mAh"], qRefMah)
+                if not np.isfinite(dv):
+                    continue
+                model = gridDeployment["models"].get(entry["key"])
+                if model is None:
+                    continue
+                frame = pd.DataFrame([{win["raw_name"]: dv}])[model.features]
+                predictedSoh = float(model.predict(frame)[0])
+                comboMeta = {"name": entry["key"], "band": entry["band"],
+                             "val_rmse_percent": entry["val_rmse_percent"]}
+                self._judgeAndFuseFfnnObservation(
+                    k, comboMeta, predictedSoh, tNow,
+                    float("nan"), crateDischarge, temperatureC, runType="quick_field",
+                    sourceLabel=(f"quick field grid {entry['duration_min']}min"
+                                 f"@{win['centre_frac']:.0%}"))
+                return  # best-accuracy grid entry currently satisfiable
+
+    def _scanGroupForFfnnObservation(self, k, t, v, iMa, tempSeries, tNow):
+        segments = scan_segments(t, v, iMa, tempSeries)
+        if not segments:
+            return
+
+        meta = self.sohDeployment["meta"]
+        for comboMeta in meta["combinations"]:  # already ordered best3, best2, best1
+            model = self.sohDeployment["models"].get(comboMeta["name"])
+            if model is None:
+                continue
+
+            featureValues = {}
+            windowTimes = []  # (segStart, segEnd, crateCharge, crateDischarge) per window used
+            ok = True
+            for win in comboMeta["windows"]:
+                vLow, vHigh = win["centre_v"] - win["width_v"] / 2.0, win["centre_v"] + win["width_v"] / 2.0
+                wantKind = "charge" if win["mode"] == "ch" else "discharge"
+                found = False
+                for seg, mask in segments:
+                    if seg.kind != wantKind:
+                        continue
+                    if window_coverage(v[mask], vLow, vHigh) < self.sohGateSettings.min_coverage:
+                        continue
+                    dur = voltage_window_time(t[mask], v[mask], vLow, vHigh)
+                    if not np.isfinite(dur):
+                        continue
+                    featureValues[win["raw_name"]] = dur
+                    segSpan = t[mask]
+                    windowTimes.append((float(segSpan[0]), float(segSpan[-1]), seg))
+                    found = True
+                    break
+                if not found:
+                    ok = False
+                    break
+            if not ok:
+                continue
+
+            # All windows must come from segments close in time to each other --
+            # otherwise a charge window from an hour ago and a discharge window from
+            # just now could get combined as if measured under one coherent
+            # condition (see SOH_COMBO_MAX_TIME_GAP_S).
+            spanStart = min(w[0] for w in windowTimes)
+            spanEnd = max(w[1] for w in windowTimes)
+            if spanEnd - spanStart > SOH_COMBO_MAX_TIME_GAP_S:
+                continue
+
+            usedSegs = [w[2] for w in windowTimes]
+            crateCharge = next((s.crate for s in usedSegs if s.kind == "charge"), float("nan"))
+            crateDischarge = next((s.crate for s in usedSegs if s.kind == "discharge"), float("nan"))
+            temperatureC = float(np.nanmean([s.temperature_c for s in usedSegs]))
+
+            frame = pd.DataFrame([featureValues])[model.features]
+            predictedSoh = float(model.predict(frame)[0])
+            self._judgeAndFuseFfnnObservation(k, comboMeta, predictedSoh, tNow,
+                                               crateCharge, crateDischarge, temperatureC)
+            return  # best available combo for this group this scan -- don't also log weaker ones
+
+    def _judgeAndFuseFfnnObservation(self, k, comboMeta, predictedSoh, tNow,
+                                      crateCharge, crateDischarge, temperatureC,
+                                      runType="opportunistic", sourceLabel="live opportunistic"):
+        """Bridges a deployment package's multi-feature FFNN combinations into
+        soh.online's Observation/Verdict/SohTracker machinery. NOT the same path
+        as soh.online.AcceptanceGate.judge() -- that class is built around a
+        single-feature FeatureCalibration (one rho, one domain range), which an
+        FFNN combination fusing 1-3 windows doesn't have. Verdict/Observation are
+        still real soh.online objects, so SohTracker.update() and soh_store's
+        logging schema work unchanged; only the acceptance judgement itself
+        (condition penalty, plausibility) is reimplemented here for this combo
+        shape, reusing GateSettings' tuned thresholds (crate_tolerance etc.) as
+        the source of truth for what counts as "too far off".
+
+        Shared by both opportunistic estimators (tV-window, native rate; and the
+        "quick field" short fixed-capacity-window one, see _scanFieldWindowSoh) --
+        `runType`/`sourceLabel` are what tell them apart in soh_log.csv and the
+        debug log; both feed the SAME per-group SohTracker, so a more accurate
+        estimate (smaller sigma, from either source) naturally pulls the tracked
+        value harder than a less accurate one -- exactly the "quick data, replaced
+        by anything more precise" behaviour the quick-field estimator needs,
+        without a separate trust-tier mechanism."""
+        s = self.sohGateSettings
+        reasons = []
+
+        tier = SOH_FFNN_BAND_TIER.get(comboMeta["band"], Tier.LOW)
+        baseSigma = comboMeta["val_rmse_percent"]
+
+        penalty = 1.0
+        for measured, label in ((crateCharge, "charge C-rate"), (crateDischarge, "discharge C-rate")):
+            if not np.isfinite(measured) or measured <= 0:
+                continue
+            deviation = abs(measured - SOH_REFERENCE_CRATE) / SOH_REFERENCE_CRATE
+            if deviation > s.crate_tolerance:
+                reasons.append(f"{label} {measured:.3f} C is {deviation:.0%} off the "
+                                f"{SOH_REFERENCE_CRATE:.2f} C reference")
+            penalty *= 1.0 + 2.0 * deviation
+        if temperatureC == temperatureC:
+            offset = abs(temperatureC - 25.0)
+            if offset > s.temperature_tolerance_c:
+                reasons.append(f"temperature {temperatureC:.0f} C is {offset:.0f} C from "
+                                "the 25 C reference")
+            penalty *= 1.0 + 0.04 * offset
+
+        sigma = baseSigma * tier.variance_inflation * penalty
+
+        tracker = self.sohTrackers[k]
+        if tracker.history:
+            combined = math.sqrt(sigma ** 2 + tracker.sigma ** 2)
+            disagreement = abs(predictedSoh - tracker.soh) / combined if combined > 0 else float("inf")
+            if disagreement > s.max_disagreement_sigmas:
+                reasons.append(f"candidate {predictedSoh:.2f} % disagrees with tracked "
+                                f"{tracker.soh:.2f} % by {disagreement:.1f} sigma")
+            if predictedSoh - tracker.soh > s.max_soh_rise:
+                reasons.append(f"implies SOH rose {predictedSoh - tracker.soh:.2f} points")
+
+        obs = Observation(
+            feature=comboMeta["name"], value=predictedSoh, timestamp_h=tNow / 3600.0,
+            equivalent_full_cycles=self._estimateEfc(k),
+            crate_charge=crateCharge, crate_discharge=crateDischarge,
+            temperature_c=temperatureC, coverage=1.0,
+            source=f"{sourceLabel} @ t={tNow:.0f} s")
+        verdict = Verdict(observation=obs, soh=predictedSoh, sigma=sigma, tier=tier,
+                           accepted=not reasons, reasons=reasons)
+
+        ageDays = 0.0  # live observations are always "now" -- the age cap matters
+                        # once opportunistic history can be replayed/backfilled
+        if ageDays <= SOH_MAX_OBSERVATION_AGE_DAYS:
+            tracker.update(verdict)
+
+        row = verdict.as_row()
+        row["time_iso"] = datetime.now().isoformat(timespec="seconds")
+        row["group"] = f"B{k + 1:02d}"
+        row["run_type"] = runType
+        row["soh_pct"] = row.pop("soh_candidate")
+        row["sigma_pct"] = row.pop("sigma")
+        row["temperature_c"] = temperatureC
+        row["rate_c"] = crateDischarge if crateDischarge == crateDischarge else crateCharge
+        soh_store.append_log(row, self.scriptDir)
+
+        if verdict.accepted:
+            self.logMsg(f"[SoH] B{k + 1:02d} {runType} ({comboMeta['name']}): "
+                        f"{predictedSoh:.1f} % -> tracked {tracker.soh:.1f} % ± {tracker.sigma:.1f}")
+            # Chart the FUSED tracker value, not the raw candidate -- matches the
+            # "live est." label and gives a smooth trend instead of noisy points.
+            self._appendSohHistory(k, datetime.now(), tracker.soh, "opportunistic")
+            self._refreshSohHistoryChart()
+        else:
+            self.logMsg(f"[SoH] B{k + 1:02d} {runType} candidate rejected: "
+                        + "; ".join(reasons))
+        self._updateSohLabels()
 
     def _refreshHealthPage(self):
         """Recompute the whole-session per-group average voltage and each group's
@@ -1219,24 +2151,47 @@ class MonitorApp:
     def _onEstimationToggle(self):
         self.estimationOn = bool(self.estimationVar.get())
         if self.estimationOn:
-            self.estimationHorizonMenu.pack(side="left", padx=(0, 14))
-            self.logMsg(f"Estimation on -- projecting {self.estimationHorizonH} h ahead "
-                        "at the current current.")
+            self.estimationHorizonFrame.pack(side="left", padx=(0, 14))
+            self.logMsg(f"Estimation on -- projecting {_formatHorizonMinutes(self.estimationHorizonMin)} "
+                        "ahead at the current current.")
             self._runEstimation()
             self._scheduleEstimationTick()
         else:
             if self._estimationAfterId is not None:
                 self.root.after_cancel(self._estimationAfterId)
                 self._estimationAfterId = None
-            self.estimationHorizonMenu.pack_forget()
+            self.estimationHorizonFrame.pack_forget()
             self.logMsg("Estimation off.")
             self._clearEstimation()
 
-    def _onEstimationHorizonChange(self, value):
+    def _onEstimationHorizonSlide(self, value):
+        idx = max(0, min(int(round(float(value))), len(ESTIMATION_MINUTES_STEPS) - 1))
+        self._setEstimationHorizonMinutes(ESTIMATION_MINUTES_STEPS[idx], moveSlider=False)
+
+    def _onEstimationHorizonEntryChange(self, event=None):
         try:
-            self.estimationHorizonH = int(value.split()[0])
-        except (ValueError, IndexError):
+            minutes = int(round(float(self.estimationHorizonEntry.get().replace(",", "."))))
+        except ValueError:
+            self.estimationHorizonEntry.delete(0, "end")
+            self.estimationHorizonEntry.insert(0, str(self.estimationHorizonMin))
             return
+        minutes = max(1, min(minutes, 24 * 60))
+        self._setEstimationHorizonMinutes(minutes, moveSlider=True)
+
+    def _setEstimationHorizonMinutes(self, minutes, moveSlider):
+        """Common path for both the slider (already-quantized values) and the manual entry
+        (any exact minute count) -- the entry can land off the slider's grid on purpose, so
+        the slider is only ever moved to the NEAREST grid step, never used to override it."""
+        self.estimationHorizonMin = minutes
+        if moveSlider:
+            nearestIdx = min(range(len(ESTIMATION_MINUTES_STEPS)),
+                              key=lambda i: abs(ESTIMATION_MINUTES_STEPS[i] - minutes))
+            self.estimationHorizonSlider.set(nearestIdx)
+        self.estimationHorizonValueLabel.configure(text=_formatHorizonMinutes(minutes))
+        entryText = str(minutes)
+        if self.estimationHorizonEntry.get() != entryText:
+            self.estimationHorizonEntry.delete(0, "end")
+            self.estimationHorizonEntry.insert(0, entryText)
         if self.estimationOn:
             self._runEstimation()
 
@@ -1263,7 +2218,7 @@ class MonitorApp:
 
         tNow = self.tData[-1]
         dt = ESTIMATION_DT_S
-        n = max(2, int(self.estimationHorizonH * 3600.0 // dt))
+        n = max(2, int(self.estimationHorizonMin * 60.0 // dt))
         tRel = np.arange(1, n + 1) * dt
         tAbs = tNow + tRel
 
@@ -1449,6 +2404,23 @@ class MonitorApp:
 
         self.canvas.draw_idle()
 
+        # -- small embedded figures (ECM SOC sparkline, SoH history) -- sit on a
+        # card body, which is transparent over card_bg_alt, not card_bg. --
+        for fig, ax, canvas in ((self.ecmSocFig, self.ecmSocAx, self.ecmSocCanvas),
+                                 (self.sohFig, self.sohAx, self.sohCanvas)):
+            fig.set_facecolor(t["card_bg_alt"])
+            ax.set_facecolor(t["card_bg_alt"])
+            ax.tick_params(colors=t["text_secondary"])
+            ax.yaxis.label.set_color(t["text"])
+            for spine in ax.spines.values():
+                spine.set_visible(False)
+            ax.grid(True, color=t["separator"], linewidth=0.5, alpha=0.7)
+            legend = ax.get_legend()
+            if legend is not None:
+                for text in legend.get_texts():
+                    text.set_color(t["text_secondary"])
+            canvas.draw_idle()
+
     # ------------------------------------------------------------------
     # COM PORT SCANNING
     def scanPorts(self):
@@ -1528,11 +2500,27 @@ class MonitorApp:
                 return  # button is locked while measuring -- stop the measurement first
             self.disconnect()
 
+    def _shutdownRelaysAndVerify(self):
+        """Best-effort safety net before the port actually closes (manual Disconnect, or
+        the app exiting -- see onClose): command every relay OFF, then take one fresh
+        direct current reading per relay to confirm it actually happened. Runs
+        synchronously (unlike the async _scheduleRelayOffVerification path used elsewhere)
+        because by design relays must be off, and confirmed off, BEFORE the rest of
+        teardown proceeds -- not sometime after, on whatever the async delay happens to be."""
+        for ch, _ in self.relayChannels:
+            self._setRelayImmediate(ch, False, "disconnecting", verify=False)
+        time.sleep(RELAY_OFF_VERIFY_DELAY_S)
+        for ch, _ in self.relayChannels:
+            measuredA = self._measureRelayCurrent(ch)
+            if measuredA == measuredA and measuredA > RELAY_OFF_VERIFY_CURRENT_A:
+                self._showRelayStillOnWarning(ch, "disconnecting", measuredA)
+
     def disconnect(self):
         if self.measuring:
             self.stopMeasurement()
 
         if self.sPort is not None:
+            self._shutdownRelaysAndVerify()
             try:
                 self.sPort.close()
             except Exception:
@@ -1579,6 +2567,11 @@ class MonitorApp:
                     f"measurement start with sequence — initial state {'ON' if initialState else 'OFF'}")
 
             if self.tStart is None:
+                # Only on the actual first start of a session (not a Stop/Start resume,
+                # which must keep the ECM's accumulated SOC/state) -- same rest-voltage SOC
+                # estimate loadTestFile already does from a log's first row, just taken
+                # live instead of read from a file.
+                self._estimateInitialSocFromLiveReading()
                 self.tStart = time.perf_counter()
 
             self.logMsg("Starting data collection...")
@@ -1592,6 +2585,59 @@ class MonitorApp:
         else:
             self.stopMeasurement()
             self.logMsg("Measurement stopped by user.")
+
+    def _estimateInitialSocFromLiveReading(self):
+        """Rest-voltage initial-SOC estimate for a fresh live measurement -- the live-start
+        counterpart to loadTestFile's identical estimate from a log's first row (see
+        estimateInitialSocPct). Takes one direct reading of every channel synchronously
+        (before the worker thread starts streaming), same queries _workerLoop makes per
+        cycle. Safe to call under load too: estimateInitialSocPct just falls back to the
+        manually-entered SOC with a logged reason when the reading doesn't look like rest."""
+        speed = "Fast" if self.pollPeriod < SLOW_THRESHOLD else "Slow"
+
+        battV = [self._query(f"MEASure:VOLTage{ch}? 15V,{speed}",
+                              rangeLimit=BATTERY_RANGE_V * RANGE_MARGIN)
+                 for ch in self.batteryChannels]
+        validV = [v for v in battV if v == v]
+        avgV = sum(validV) / len(validV) if validV else float("nan")
+
+        inCh, _ = self.currentChannels[0]
+        outCh, _ = self.currentChannels[1]
+        iIn = self._query(f"MEASure:VOLTage{inCh}? 0V15,{speed}",
+                           rangeLimit=CURRENT_SHUNT_RANGE_V * RANGE_MARGIN)
+        iOut = self._query(f"MEASure:VOLTage{outCh}? 0V15,{speed}",
+                            rangeLimit=CURRENT_SHUNT_RANGE_V * RANGE_MARGIN)
+        packCurrent = ((iOut - iIn) / self.shuntOhms
+                       if (iIn == iIn and iOut == iOut) else float("nan"))
+        netCurrent = packCurrent / self.ecmParallelCount if packCurrent == packCurrent else float("nan")
+
+        tempCh, tempName = self.resistChannels[self.ecmTempSourceIndex]
+        tempRawOhm = self._query(f"MEASure:RESistance{tempCh}? 200k,{speed}",
+                                  rangeLimit=RESIST_RANGE_OHM * RANGE_MARGIN)
+        temp = resistanceToCelsius(tempName, tempRawOhm)
+        if temp != temp:
+            temp = 25.0
+
+        try:
+            fallbackPct = float(self.ecmInitialSocEntry.get().replace(",", "."))
+        except ValueError:
+            fallbackPct = 100.0
+
+        initialSocPct, wasEstimated, reason = estimateInitialSocPct(
+            self.ecm, avgV, netCurrent, temp, fallbackPct)
+
+        if wasEstimated:
+            self.logMsg(f"Initial SOC estimated from a rest-voltage reading at measurement "
+                        f"start ({avgV:.3f} V @ {temp:.1f} °C): {initialSocPct:.1f} %.")
+        else:
+            self.logMsg(f"[!] Measurement start doesn't look like a battery rest voltage "
+                        f"({reason}) — using the manual initial SOC {initialSocPct:.1f} %.")
+
+        self.ecmInitialSocEntry.delete(0, "end")
+        self.ecmInitialSocEntry.insert(0, f"{initialSocPct:.1f}")
+        self.ecmInitialSocPct = initialSocPct
+        self.ecm.reset(initialSocFraction=initialSocPct / 100.0)
+        self.ecmEkf.reset(initialSocFraction=initialSocPct / 100.0)
 
     # ------------------------------------------------------------------
     def _setStatus(self, text, color):
@@ -1680,6 +2726,10 @@ class MonitorApp:
             self._cutoffInitialApplied = applied
         else:
             self._cutoffInitialApplied = False
+            # Disabling the sequence hands manual control of the Load relay back to the
+            # user (see _refreshRelayAvailability) -- default that handoff to OFF rather
+            # than leaving it energized with no automatic protection watching it anymore.
+            self._setRelayImmediate(self.relayOutCh, False, "sequence disabled")
 
     def _saveCutoffInitialState(self):
         self.cutoffInitialState = bool(self.cutoffInitialVar.get())
@@ -1687,9 +2737,23 @@ class MonitorApp:
         cfg["cutoff_initial_state"] = self.cutoffInitialState
         config.save_config(cfg)
 
-    def _setRelayImmediate(self, ch, newState, reason):
+    # ------------------------------------------------------------------
+    # DATA -- optional fast (short-period) text log
+    def _toggleFastFileLog(self):
+        self.fastFileLogEnabled = bool(self.fastFileLogVar.get())
+        self.fileLogger.setFastLoggingEnabled(self.fastFileLogEnabled)
+        cfg = config.load_config()
+        cfg["fast_file_log_enabled"] = self.fastFileLogEnabled
+        config.save_config(cfg)
+        state = "enabled" if self.fastFileLogEnabled else "disabled"
+        self.logMsg(f"Fast ({FILE_LOG_PERIOD_FAST:.0f} s) text log {state} "
+                    f"({BatteryFileLogger.FAST_FILENAME}).")
+
+    def _setRelayImmediate(self, ch, newState, reason, verify=True):
         """Sends SET:OUTput directly from the main (GUI) thread and reflects the state
-        in the UI. Returns True if the command was actually sent."""
+        in the UI. Returns True if the command was actually sent. `verify=False` skips
+        scheduling the current-based off-verification (see _scheduleRelayOffVerification)
+        for callers that already do their own, e.g. the disconnect/shutdown sequence."""
         if self.sPort is None:
             self.logMsg(f"[!] Can't set relay CH{ch} — port not connected.")
             return False
@@ -1708,7 +2772,54 @@ class MonitorApp:
             var.set(newState)
         name = dict(self.relayChannels)[ch]
         self.logMsg(f"Relay CH{ch} ({name}) -> {'ON' if newState else 'OFF'} ({reason})")
+        if verify and not newState:
+            self._scheduleRelayOffVerification(ch, reason)
         return True
+
+    def _measureRelayCurrent(self, ch):
+        """One direct, synchronous current reading [A] for whichever shunt channel the
+        given relay is expected to gate (IN relay -> I_IN, OUT/Load relay -> I_OUT) --
+        same command/range as the worker loop's own per-cycle reading. Returns NaN on a
+        bad/missing reply. Safe to call whether or not a measurement is currently running
+        (goes through the same self.portLock as everything else touching the port)."""
+        if self.sPort is None:
+            return float("nan")
+        idx = 0 if ch == self.relayInCh else 1
+        currCh, _ = self.currentChannels[idx]
+        speed = "Fast" if self.pollPeriod < SLOW_THRESHOLD else "Slow"
+        v = self._query(f"MEASure:VOLTage{currCh}? 0V15,{speed}",
+                         rangeLimit=CURRENT_SHUNT_RANGE_V * RANGE_MARGIN)
+        return abs(v / self.shuntOhms) if v == v else float("nan")
+
+    def _scheduleRelayOffVerification(self, ch, reason):
+        """Must be called from the GUI thread (root.after is not thread-safe) -- the
+        worker thread posts to autoEventQueue instead, see _autoSetRelay/_pollQueue."""
+        self.root.after(int(RELAY_OFF_VERIFY_DELAY_S * 1000),
+                         lambda: self._verifyRelayOffAsync(ch, reason))
+
+    def _verifyRelayOffAsync(self, ch, reason):
+        if self.sPort is None:
+            return  # disconnected in the meantime -- nothing left to check
+        measuredA = self._measureRelayCurrent(ch)
+        if measuredA == measuredA and measuredA > RELAY_OFF_VERIFY_CURRENT_A:
+            self._showRelayStillOnWarning(ch, reason, measuredA)
+
+    def _showRelayStillOnWarning(self, ch, reason, measuredA):
+        """Blocking modal -- see the 2026-09-01 welded-contact incident that prompted this:
+        SET:OUTput has no readback, so a relay that silently stopped responding to commands
+        would otherwise look identical (in this app) to one that's genuinely open. The user
+        must explicitly acknowledge before continuing; this is deliberately NOT a passive
+        banner or an audible alarm, per spec."""
+        name = dict(self.relayChannels).get(ch, str(ch))
+        self.logMsg(f"[!] CH{ch} ({name}) commanded OFF ({reason}) but current sensing "
+                    f"still reads {measuredA:.2f} A (> {RELAY_OFF_VERIFY_CURRENT_A:.1f} A).")
+        messagebox.showwarning(
+            "Relay may still be energized",
+            f"CH{ch} ({name}) was just commanded OFF ({reason}), but current sensing "
+            f"still reads {measuredA:.2f} A -- above the {RELAY_OFF_VERIFY_CURRENT_A:.1f} A "
+            "threshold for calling it off.\n\n"
+            "The relay may not be responding (e.g. welded/stuck contacts from switching "
+            "an inductive load) -- check it physically before relying on it again.")
 
     def _applyCutoffThresholds(self):
         try:
@@ -1741,6 +2852,16 @@ class MonitorApp:
 
     # ------------------------------------------------------------------
     # ECM MODEL
+    def _refreshEcmSocChart(self):
+        """Small sparkline in the ECM card: Coulomb-counting vs EKF SOC over this
+        session. Cheap (two line updates on an already-small figure) so it's just
+        called every _applyMeasurement tick rather than throttled."""
+        self.ecmSocLine.set_data(self.tData, self.ecmSocY)
+        self.ecmEkfSocLine.set_data(self.tData, self.ecmEkfSocY)
+        self.ecmSocAx.relim()
+        self.ecmSocAx.autoscale_view()
+        self.ecmSocCanvas.draw_idle()
+
     def resetEcm(self):
         try:
             pct = float(self.ecmInitialSocEntry.get().replace(",", "."))
@@ -1750,19 +2871,24 @@ class MonitorApp:
         pct = min(max(pct, 0.0), 100.0)
 
         self.ecm.reset(initialSocFraction=pct / 100.0)
+        self.ecmEkf.reset(initialSocFraction=pct / 100.0)
         self._ecmLastTNow = None
         self.ecmY = [float("nan")] * len(self.tData)
         self.ecmSocY = [float("nan")] * len(self.tData)
+        self.ecmEkfSocY = [float("nan")] * len(self.tData)
         if self.ecmLines:
             self.ecmLines[0].set_data(self.tData, self.ecmY)
             self.canvas.draw_idle()
+        self._refreshEcmSocChart()
 
         self.ecmInitialSocPct = pct
         cfg = config.load_config()
         cfg["ecm_initial_soc_pct"] = pct
         config.save_config(cfg)
 
-        self.ecmSocLabel.configure(text=f"SOC: {self.ecm.soc*100:.1f} %")
+        self.ecmSocLabel.configure(text=f"SOC (Coulomb counting): {self.ecm.soc*100:.1f} %")
+        self.ecmEkfSocLabel.configure(
+            text=f"SOC (EKF): {self.ecmEkf.soc*100:.1f} % ± {self.ecmEkf.socSigma*100:.1f} pp")
         self.ecmVoltageLabel.configure(text="Simulated voltage: --- V")
         self.ecmModeLabel.configure(text="Mode: —  ·  Model temperature: --- °C")
         self.logMsg(f"ECM model reset to SOC {pct:.1f} %.")
@@ -2042,7 +3168,9 @@ class MonitorApp:
 
         self.tData, self.battY, self.currY, self.resY = tData, battY, currY, resY
         self.ecmY, self.ecmSocY, self.ecmPLossY = ecmY, ecmSocY, pLossY
+        self.ecmEkfSocY = [float("nan")] * len(tData)  # EKF only runs live, see ecm_ekf.py
         self._ecmLastTNow = tData[-1] if tData else None
+        self._refreshEcmSocChart()
 
         for k, line in enumerate(self.battLines):
             line.set_data(self.tData, self.battY[k])
@@ -2079,7 +3207,8 @@ class MonitorApp:
         if self.fmuDetailWindow is not None and self.fmuDetailWindow.winfo_exists():
             self.fmuDetailWindow.update_data(self.tData, self.ecmPLossY, self.fmuTData, self.fmuY)
 
-        self.ecmSocLabel.configure(text=f"SOC: {self.ecm.soc*100:.1f} %")
+        self.ecmSocLabel.configure(text=f"SOC (Coulomb counting): {self.ecm.soc*100:.1f} %")
+        self.ecmEkfSocLabel.configure(text="SOC (EKF): -- (live measurement only)")
         self.ecmVoltageLabel.configure(
             text=f"Simulated voltage: {self.ecm.lastVoltage:.3f} V"
             if self.ecm.lastVoltage == self.ecm.lastVoltage else "Simulated voltage: --- V")
@@ -2089,6 +3218,23 @@ class MonitorApp:
 
         self.logMsg(f"[OK] Loaded {len(tData)} rows from {os.path.basename(path)} "
                     f"(duration {tData[-1] - tData[0]:.0f} s). ECM replayed over the whole current profile.")
+
+        # Opportunistic SoH (Phase 2) otherwise only ever sees live data via
+        # _applyMeasurement's hook -- a loaded file has real per-group voltages too,
+        # so it deserves the same retroactive scan over the whole loaded history.
+        # Bypass the throttle: a fresh load should always get one immediate attempt.
+        # Also reset the quick-field estimator's dedicated live buffer (Phase 3, see
+        # soh/README.md) -- it's only ever filled by _applyMeasurement, so it would
+        # otherwise still hold a stale earlier live session's data and shadow this
+        # file's own self.tData/self.battY/self.ecmSocY in _scanFieldWindowSoh.
+        self._sohLastScanT = None
+        self._sohFieldLastScanT = None
+        self._sohFieldT = []
+        self._sohFieldNetCurrentA = []
+        self._sohFieldSocPct = []
+        self._sohFieldTempC = []
+        self._sohFieldV = [[] for _ in range(len(self.batteryChannels))]
+        self._scanOpportunisticSoh(tData[-1])
         self._refreshHealthPage()
 
     # ------------------------------------------------------------------
@@ -2198,7 +3344,9 @@ class MonitorApp:
 
         self.tData, self.battY, self.currY, self.resY = tData, battY, currY, resY
         self.ecmY, self.ecmSocY, self.ecmPLossY = ecmY, ecmSocY, pLossY
+        self.ecmEkfSocY = [float("nan")] * len(tData)  # EKF only runs live, see ecm_ekf.py
         self._ecmLastTNow = tData[-1] if tData else None
+        self._refreshEcmSocChart()
 
         for k, line in enumerate(self.battLines):
             line.set_data([], [])
@@ -2235,7 +3383,8 @@ class MonitorApp:
         if self.fmuDetailWindow is not None and self.fmuDetailWindow.winfo_exists():
             self.fmuDetailWindow.update_data(self.tData, self.ecmPLossY, self.fmuTData, self.fmuY)
 
-        self.ecmSocLabel.configure(text=f"SOC: {self.ecm.soc*100:.1f} %")
+        self.ecmSocLabel.configure(text=f"SOC (Coulomb counting): {self.ecm.soc*100:.1f} %")
+        self.ecmEkfSocLabel.configure(text="SOC (EKF): -- (live measurement only)")
         self.ecmVoltageLabel.configure(
             text=f"Simulated voltage: {self.ecm.lastVoltage:.3f} V"
             if self.ecm.lastVoltage == self.ecm.lastVoltage else "Simulated voltage: --- V")
@@ -2330,6 +3479,10 @@ class MonitorApp:
                 return
         self.relayState[ch] = newState
         self.autoEventQueue.put(("relay", ch, newState, reason))
+        if not newState:
+            # off-verification needs root.after -- not thread-safe from here, hand it to
+            # _pollQueue (GUI thread) via the same event, tagged so it isn't logged twice
+            self.autoEventQueue.put(("verifyRelayOff", ch, None, reason))
 
     def _attemptReconnect(self):
         portName = self.sPort.port if self.sPort is not None else None
@@ -2442,6 +3595,8 @@ class MonitorApp:
                 if ch in self.relaySwitches:
                     _, var = self.relaySwitches[ch]
                     var.set(state)
+            elif tag == "verifyRelayOff":
+                self._scheduleRelayOffVerification(ch, reason)
 
         fmuUpdated = False
         fmuLegendRebuildNeeded = False
@@ -2530,8 +3685,12 @@ class MonitorApp:
         self._lastDisplayCurrent = packCurrent
         ecmTemp = resistances[self.ecmTempSourceIndex] if resistances else float("nan")
 
+        self._maintenanceOnSample(tNow, battery, packCurrent, ecmTemp)
+
         ecmDt = None if self._ecmLastTNow is None else tNow - self._ecmLastTNow
         self._ecmLastTNow = tNow
+        if ecmDt is not None and ecmDt > 0 and netCurrent == netCurrent:
+            self._sohAhThroughputAh += abs(netCurrent) * ecmDt / 3600.0
         if ecmDt is not None and ecmDt > 0:
             ecmVoltage = self.ecm.step(netCurrent, ecmDt, ecmTemp)
             if self.fmuThermal.isRunning():
@@ -2542,6 +3701,36 @@ class MonitorApp:
         self.ecmSocY.append(self.ecm.soc * 100.0)
         self.ecmPLossY.append(self.ecm.lastPLossW)
 
+        # -- EKF SOC (see ecm_ekf.py) -- fuses the REAL measured cell voltage (average
+        # across series groups, same convention as estimateInitialSocPct's rest-voltage
+        # reading) to correct SOC drift; only meaningful live, where that measurement
+        # exists every step -- see the "-- (live measurement only)" label elsewhere. --
+        validBattV = [v for v in battery if v == v]
+        avgMeasuredV = sum(validBattV) / len(validBattV) if validBattV else float("nan")
+        if ecmDt is not None and ecmDt > 0:
+            self.ecmEkf.step(netCurrent, ecmDt, ecmTemp, avgMeasuredV)
+            self.ecmEkfSocY.append(self.ecmEkf.soc * 100.0)
+        else:
+            self.ecmEkfSocY.append(float("nan"))
+
+        # -- quick-field SoH history buffer + scan -- AFTER the EKF step, so the
+        # freshest SOC is what gets recorded/scanned (see SOH_FIELD_HISTORY_MAX_POINTS). --
+        self._sohFieldT.append(tNow)
+        self._sohFieldNetCurrentA.append(netCurrent)
+        self._sohFieldSocPct.append(self.ecmEkfSocY[-1] if self.ecmEkfSocY[-1] == self.ecmEkfSocY[-1]
+                                     else self.ecm.soc * 100.0)
+        self._sohFieldTempC.append(ecmTemp)
+        for gk, gv in enumerate(battery):
+            self._sohFieldV[gk].append(gv)
+        if len(self._sohFieldT) > SOH_FIELD_HISTORY_MAX_POINTS:
+            self._sohFieldT = self._sohFieldT[-SOH_FIELD_HISTORY_MAX_POINTS:]
+            self._sohFieldNetCurrentA = self._sohFieldNetCurrentA[-SOH_FIELD_HISTORY_MAX_POINTS:]
+            self._sohFieldSocPct = self._sohFieldSocPct[-SOH_FIELD_HISTORY_MAX_POINTS:]
+            self._sohFieldTempC = self._sohFieldTempC[-SOH_FIELD_HISTORY_MAX_POINTS:]
+            self._sohFieldV = [col[-SOH_FIELD_HISTORY_MAX_POINTS:] for col in self._sohFieldV]
+
+        self._scanOpportunisticSoh(tNow)
+
         if ecmVoltage == ecmVoltage:
             self.ecmVoltageLabel.configure(text=f"Simulated voltage: {ecmVoltage:.3f} V")
         else:
@@ -2549,7 +3738,9 @@ class MonitorApp:
         ecmModeText = "Discharging" if self.ecm.lastMode == "discharge" else "Charging"
         self.ecmModeLabel.configure(
             text=f"Mode: {ecmModeText}  ·  Model temperature: {self.ecm.lastTemperatureC:.1f} °C")
-        self.ecmSocLabel.configure(text=f"SOC: {self.ecm.soc*100:.1f} %")
+        self.ecmSocLabel.configure(text=f"SOC (Coulomb counting): {self.ecm.soc*100:.1f} %")
+        self.ecmEkfSocLabel.configure(
+            text=f"SOC (EKF): {self.ecmEkf.soc*100:.1f} % ± {self.ecmEkf.socSigma*100:.1f} pp")
 
         if len(self.tData) > MAX_POINTS:
             self.tData = self.tData[-MAX_POINTS:]
@@ -2558,7 +3749,10 @@ class MonitorApp:
             self.resY = [y[-MAX_POINTS:] for y in self.resY]
             self.ecmY = self.ecmY[-MAX_POINTS:]
             self.ecmSocY = self.ecmSocY[-MAX_POINTS:]
+            self.ecmEkfSocY = self.ecmEkfSocY[-MAX_POINTS:]
             self.ecmPLossY = self.ecmPLossY[-MAX_POINTS:]
+
+        self._refreshEcmSocChart()
 
         if self.fmuDetailWindow is not None and self.fmuDetailWindow.winfo_exists():
             self.fmuDetailWindow.update_data(self.tData, self.ecmPLossY,
@@ -2583,13 +3777,18 @@ class MonitorApp:
                     " || " + " | ".join(resParts))
 
         now = time.time()
+        currentIN = currents[0] if len(currents) > 0 else float("nan")
+        currentOUT = currents[1] if len(currents) > 1 else float("nan")
         if now - self._lastFileLogTime >= FILE_LOG_PERIOD:
             self._lastFileLogTime = now
-            currentIN = currents[0] if len(currents) > 0 else float("nan")
-            currentOUT = currents[1] if len(currents) > 1 else float("nan")
             self.fileLogger.logCycle(datetime.now(), battery, currentIN, currentOUT,
                                       resistances, self.relayState.get(self.relayInCh, False),
                                       self.relayState.get(self.relayOutCh, False))
+        if self.fastFileLogEnabled and now - self._lastFastFileLogTime >= FILE_LOG_PERIOD_FAST:
+            self._lastFastFileLogTime = now
+            self.fileLogger.logFastCycle(datetime.now(), battery, currentIN, currentOUT,
+                                          resistances, self.relayState.get(self.relayInCh, False),
+                                          self.relayState.get(self.relayOutCh, False))
 
     # ------------------------------------------------------------------
     # RELAYS (manual control)
@@ -2613,6 +3812,8 @@ class MonitorApp:
         self.relayState[ch] = newState
         name = dict(self.relayChannels)[ch]
         self.logMsg(f"Relay CH{ch} ({name}) -> {'ON' if newState else 'OFF'} ({cmd})")
+        if not newState:
+            self._scheduleRelayOffVerification(ch, "manual switch")
 
     # ------------------------------------------------------------------
     # STOP MEASUREMENT (the port stays connected -- see disconnect() to fully disconnect)
@@ -2651,10 +3852,21 @@ class MonitorApp:
         self.resY = [[] for _ in self.resistChannels]
         self.ecmY = []
         self.ecmSocY = []
+        self.ecmEkfSocY = []  # NaN where the EKF wasn't fed a real measurement (see _applyMeasurement)
         self.ecmPLossY = []
         self._ecmLastTNow = None  # ECM state (SOC/v1/v2) isn't cleared, just the chart history
         self.fmuTData = []
         self.fmuY = [[] for _ in range(FMU_N_CELLS)]  # thermal P_loss history isn't cleared either
+
+        # self.tStart resets below, which restarts what tNow means -- the quick-field
+        # buffer MUST reset with it (unlike ECM/tracker state) or SteadyStateGate.ready()
+        # would compare a post-reset "now" against pre-reset timestamps in the same array.
+        self._sohFieldT = []
+        self._sohFieldNetCurrentA = []
+        self._sohFieldSocPct = []
+        self._sohFieldTempC = []
+        self._sohFieldV = [[] for _ in self.batteryChannels]
+        self._sohFieldLastScanT = None
 
         for line in self.battLines + self.currLines + self.resLines + self.ecmLines + self.fmuLines:
             line.set_data([], [])
@@ -2664,6 +3876,7 @@ class MonitorApp:
         if self.fmuDetailWindow is not None and self.fmuDetailWindow.winfo_exists():
             self.fmuDetailWindow.update_data(self.tData, self.ecmPLossY, self.fmuTData, self.fmuY)
         self._setLogLines(["Data cleared."])
+        self._refreshEcmSocChart()
         self._refreshHealthPage()
 
     # ------------------------------------------------------------------

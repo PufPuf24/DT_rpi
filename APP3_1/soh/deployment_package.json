@@ -1,0 +1,105 @@
+{
+  "generated_at": "2026-09-01T06:05:02.556360+00:00",
+  "network": "3-12 tanh, alpha=0.01",
+  "bands": {
+    "accept": 0.5,
+    "marginal": 1.0
+  },
+  "cc_gate": {
+    "stability_tolerance": 0.02,
+    "stability_window_s": 60.0,
+    "cooldown_after_step_s": 60.0,
+    "step_threshold": 0.1
+  },
+  "combinations": [
+    {
+      "name": "best3",
+      "band": "accept",
+      "val_rmse_percent": 0.28564064055630345,
+      "cv_rmse_percent": 3.3121076446229076,
+      "windows": [
+        {
+          "raw_name": "tV_d__Vc3.67_dV0.30@C01",
+          "symbol": "$t_{V,d}$ 3.67/0.30 @0.1C",
+          "reference_case": "C01",
+          "mode": "d",
+          "centre_v": 3.67,
+          "width_v": 0.3
+        },
+        {
+          "raw_name": "tV_ch__Vc3.57_dV0.10@C01",
+          "symbol": "$t_{V,ch}$ 3.57/0.10 @0.1C",
+          "reference_case": "C01",
+          "mode": "ch",
+          "centre_v": 3.57,
+          "width_v": 0.1
+        },
+        {
+          "raw_name": "tV_ch__Vc3.97_dV0.30@C01",
+          "symbol": "$t_{V,ch}$ 3.97/0.30 @0.1C",
+          "reference_case": "C01",
+          "mode": "ch",
+          "centre_v": 3.97,
+          "width_v": 0.3
+        }
+      ]
+    },
+    {
+      "name": "best2",
+      "band": "accept",
+      "val_rmse_percent": 0.2914408715701434,
+      "cv_rmse_percent": 3.3557397059583054,
+      "windows": [
+        {
+          "raw_name": "tV_d__Vc3.67_dV0.30@C01",
+          "symbol": "$t_{V,d}$ 3.67/0.30 @0.1C",
+          "reference_case": "C01",
+          "mode": "d",
+          "centre_v": 3.67,
+          "width_v": 0.3
+        },
+        {
+          "raw_name": "tV_ch__Vc3.97_dV0.30@C01",
+          "symbol": "$t_{V,ch}$ 3.97/0.30 @0.1C",
+          "reference_case": "C01",
+          "mode": "ch",
+          "centre_v": 3.97,
+          "width_v": 0.3
+        }
+      ]
+    },
+    {
+      "name": "best1",
+      "band": "accept",
+      "val_rmse_percent": 0.43789353681592447,
+      "cv_rmse_percent": 3.316263309569952,
+      "windows": [
+        {
+          "raw_name": "tV_d__Vc3.87_dV0.30@C01",
+          "symbol": "$t_{V,d}$ 3.87/0.30 @0.1C",
+          "reference_case": "C01",
+          "mode": "d",
+          "centre_v": 3.87,
+          "width_v": 0.3
+        }
+      ]
+    }
+  ],
+  "fast_pool_comparison": [
+    {
+      "name": "best3",
+      "band": "marginal",
+      "val_rmse_percent": 0.585
+    },
+    {
+      "name": "best2",
+      "band": "marginal",
+      "val_rmse_percent": 0.617
+    },
+    {
+      "name": "best1",
+      "band": "marginal",
+      "val_rmse_percent": 0.613
+    }
+  ]
+}

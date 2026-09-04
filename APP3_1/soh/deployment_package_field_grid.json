@@ -1,0 +1,1530 @@
+{
+  "generated_at": "2026-09-04T07:41:07.957243+00:00",
+  "network": "3-12 tanh, alpha=0.01",
+  "field_current_a": 7.0,
+  "reference_case": "C01",
+  "bands": {
+    "accept": 0.5,
+    "marginal": 1.0
+  },
+  "cc_gate": {
+    "stability_tolerance": 0.02,
+    "stability_window_s": 60.0,
+    "cooldown_after_step_s": 60.0,
+    "step_threshold": 0.1
+  },
+  "entries": [
+    {
+      "key": "25min_c17",
+      "duration_min": 25,
+      "band": "accept",
+      "val_rmse_percent": 0.39280206064225065,
+      "cv_rmse_percent": 5.0001165118384225,
+      "window": {
+        "raw_name": "dV_c17",
+        "centre_frac": 0.34,
+        "dQ_mAh": 2916.666666666667
+      }
+    },
+    {
+      "key": "20min_c33",
+      "duration_min": 20,
+      "band": "accept",
+      "val_rmse_percent": 0.4564735139757401,
+      "cv_rmse_percent": 3.4574768930030286,
+      "window": {
+        "raw_name": "dV_c33",
+        "centre_frac": 0.66,
+        "dQ_mAh": 2333.333333333333
+      }
+    },
+    {
+      "key": "25min_c33",
+      "duration_min": 25,
+      "band": "accept",
+      "val_rmse_percent": 0.4802836990854129,
+      "cv_rmse_percent": 3.105212798571561,
+      "window": {
+        "raw_name": "dV_c33",
+        "centre_frac": 0.66,
+        "dQ_mAh": 2916.666666666667
+      }
+    },
+    {
+      "key": "20min_c1",
+      "duration_min": 20,
+      "band": "accept",
+      "val_rmse_percent": 0.49846132944098576,
+      "cv_rmse_percent": 3.4116449838340377,
+      "window": {
+        "raw_name": "dV_c1",
+        "centre_frac": 0.02,
+        "dQ_mAh": 2333.333333333333
+      }
+    },
+    {
+      "key": "15min_c1",
+      "duration_min": 15,
+      "band": "marginal",
+      "val_rmse_percent": 0.5250348408980452,
+      "cv_rmse_percent": 2.8124866374858914,
+      "window": {
+        "raw_name": "dV_c1",
+        "centre_frac": 0.02,
+        "dQ_mAh": 1750.0
+      }
+    },
+    {
+      "key": "25min_c34",
+      "duration_min": 25,
+      "band": "marginal",
+      "val_rmse_percent": 0.5407138009255285,
+      "cv_rmse_percent": 3.615438553182859,
+      "window": {
+        "raw_name": "dV_c34",
+        "centre_frac": 0.68,
+        "dQ_mAh": 2916.666666666667
+      }
+    },
+    {
+      "key": "25min_c39",
+      "duration_min": 25,
+      "band": "marginal",
+      "val_rmse_percent": 0.5616064160511505,
+      "cv_rmse_percent": 3.5280782242064057,
+      "window": {
+        "raw_name": "dV_c39",
+        "centre_frac": 0.78,
+        "dQ_mAh": 2916.666666666667
+      }
+    },
+    {
+      "key": "10min_c1",
+      "duration_min": 10,
+      "band": "marginal",
+      "val_rmse_percent": 0.5655600278283058,
+      "cv_rmse_percent": 2.8063451090666174,
+      "window": {
+        "raw_name": "dV_c1",
+        "centre_frac": 0.02,
+        "dQ_mAh": 1166.6666666666665
+      }
+    },
+    {
+      "key": "10min_c31",
+      "duration_min": 10,
+      "band": "marginal",
+      "val_rmse_percent": 0.5714127778916527,
+      "cv_rmse_percent": 3.51860312540655,
+      "window": {
+        "raw_name": "dV_c31",
+        "centre_frac": 0.62,
+        "dQ_mAh": 1166.6666666666665
+      }
+    },
+    {
+      "key": "15min_c34",
+      "duration_min": 15,
+      "band": "marginal",
+      "val_rmse_percent": 0.5740403957866355,
+      "cv_rmse_percent": 3.165536035984953,
+      "window": {
+        "raw_name": "dV_c34",
+        "centre_frac": 0.68,
+        "dQ_mAh": 1750.0
+      }
+    },
+    {
+      "key": "10min_c6",
+      "duration_min": 10,
+      "band": "marginal",
+      "val_rmse_percent": 0.5760956613095242,
+      "cv_rmse_percent": 3.4445110499573226,
+      "window": {
+        "raw_name": "dV_c6",
+        "centre_frac": 0.12,
+        "dQ_mAh": 1166.6666666666665
+      }
+    },
+    {
+      "key": "10min_c35",
+      "duration_min": 10,
+      "band": "marginal",
+      "val_rmse_percent": 0.5816593772793243,
+      "cv_rmse_percent": 3.9274859829414126,
+      "window": {
+        "raw_name": "dV_c35",
+        "centre_frac": 0.7,
+        "dQ_mAh": 1166.6666666666665
+      }
+    },
+    {
+      "key": "20min_c31",
+      "duration_min": 20,
+      "band": "marginal",
+      "val_rmse_percent": 0.5962102661460267,
+      "cv_rmse_percent": 3.40003638866701,
+      "window": {
+        "raw_name": "dV_c31",
+        "centre_frac": 0.62,
+        "dQ_mAh": 2333.333333333333
+      }
+    },
+    {
+      "key": "25min_c1",
+      "duration_min": 25,
+      "band": "marginal",
+      "val_rmse_percent": 0.6057740614563307,
+      "cv_rmse_percent": 0.9015084685697439,
+      "window": {
+        "raw_name": "dV_c1",
+        "centre_frac": 0.02,
+        "dQ_mAh": 2916.666666666667
+      }
+    },
+    {
+      "key": "10min_c3",
+      "duration_min": 10,
+      "band": "marginal",
+      "val_rmse_percent": 0.6066126604222564,
+      "cv_rmse_percent": 3.7185669168664908,
+      "window": {
+        "raw_name": "dV_c3",
+        "centre_frac": 0.06,
+        "dQ_mAh": 1166.6666666666665
+      }
+    },
+    {
+      "key": "25min_c31",
+      "duration_min": 25,
+      "band": "marginal",
+      "val_rmse_percent": 0.6075625537038252,
+      "cv_rmse_percent": 3.577373459442276,
+      "window": {
+        "raw_name": "dV_c31",
+        "centre_frac": 0.62,
+        "dQ_mAh": 2916.666666666667
+      }
+    },
+    {
+      "key": "20min_c13",
+      "duration_min": 20,
+      "band": "marginal",
+      "val_rmse_percent": 0.6094350090912063,
+      "cv_rmse_percent": 3.518707057701627,
+      "window": {
+        "raw_name": "dV_c13",
+        "centre_frac": 0.26,
+        "dQ_mAh": 2333.333333333333
+      }
+    },
+    {
+      "key": "30min_c32",
+      "duration_min": 30,
+      "band": "marginal",
+      "val_rmse_percent": 0.6106465324288782,
+      "cv_rmse_percent": 3.201674306203703,
+      "window": {
+        "raw_name": "dV_c32",
+        "centre_frac": 0.64,
+        "dQ_mAh": 3500.0
+      }
+    },
+    {
+      "key": "25min_c7",
+      "duration_min": 25,
+      "band": "marginal",
+      "val_rmse_percent": 0.6200092419008749,
+      "cv_rmse_percent": 3.524248795878077,
+      "window": {
+        "raw_name": "dV_c7",
+        "centre_frac": 0.14,
+        "dQ_mAh": 2916.666666666667
+      }
+    },
+    {
+      "key": "20min_c17",
+      "duration_min": 20,
+      "band": "marginal",
+      "val_rmse_percent": 0.6204403189413225,
+      "cv_rmse_percent": 6.599028723350018,
+      "window": {
+        "raw_name": "dV_c17",
+        "centre_frac": 0.34,
+        "dQ_mAh": 2333.333333333333
+      }
+    },
+    {
+      "key": "15min_c13",
+      "duration_min": 15,
+      "band": "marginal",
+      "val_rmse_percent": 0.6224610103254028,
+      "cv_rmse_percent": 3.5310100393766897,
+      "window": {
+        "raw_name": "dV_c13",
+        "centre_frac": 0.26,
+        "dQ_mAh": 1750.0
+      }
+    },
+    {
+      "key": "15min_c8",
+      "duration_min": 15,
+      "band": "marginal",
+      "val_rmse_percent": 0.6228573261393097,
+      "cv_rmse_percent": 3.5172517405597903,
+      "window": {
+        "raw_name": "dV_c8",
+        "centre_frac": 0.16,
+        "dQ_mAh": 1750.0
+      }
+    },
+    {
+      "key": "25min_c13",
+      "duration_min": 25,
+      "band": "marginal",
+      "val_rmse_percent": 0.6278186041059893,
+      "cv_rmse_percent": 3.5763547343350925,
+      "window": {
+        "raw_name": "dV_c13",
+        "centre_frac": 0.26,
+        "dQ_mAh": 2916.666666666667
+      }
+    },
+    {
+      "key": "20min_c2",
+      "duration_min": 20,
+      "band": "marginal",
+      "val_rmse_percent": 0.6288455362122146,
+      "cv_rmse_percent": 3.561751888145026,
+      "window": {
+        "raw_name": "dV_c2",
+        "centre_frac": 0.04,
+        "dQ_mAh": 2333.333333333333
+      }
+    },
+    {
+      "key": "30min_c39",
+      "duration_min": 30,
+      "band": "marginal",
+      "val_rmse_percent": 0.6368879985610733,
+      "cv_rmse_percent": 3.5560024335625084,
+      "window": {
+        "raw_name": "dV_c39",
+        "centre_frac": 0.78,
+        "dQ_mAh": 3500.0
+      }
+    },
+    {
+      "key": "30min_c5",
+      "duration_min": 30,
+      "band": "marginal",
+      "val_rmse_percent": 0.6372168702433288,
+      "cv_rmse_percent": 3.101414820667376,
+      "window": {
+        "raw_name": "dV_c5",
+        "centre_frac": 0.1,
+        "dQ_mAh": 3500.0
+      }
+    },
+    {
+      "key": "15min_c3",
+      "duration_min": 15,
+      "band": "marginal",
+      "val_rmse_percent": 0.6372171154673828,
+      "cv_rmse_percent": 3.689269174919649,
+      "window": {
+        "raw_name": "dV_c3",
+        "centre_frac": 0.06,
+        "dQ_mAh": 1750.0
+      }
+    },
+    {
+      "key": "30min_c3",
+      "duration_min": 30,
+      "band": "marginal",
+      "val_rmse_percent": 0.6398449537428308,
+      "cv_rmse_percent": 3.6808809782309124,
+      "window": {
+        "raw_name": "dV_c3",
+        "centre_frac": 0.06,
+        "dQ_mAh": 3500.0
+      }
+    },
+    {
+      "key": "15min_c6",
+      "duration_min": 15,
+      "band": "marginal",
+      "val_rmse_percent": 0.6406344887869192,
+      "cv_rmse_percent": 3.5026190550466962,
+      "window": {
+        "raw_name": "dV_c6",
+        "centre_frac": 0.12,
+        "dQ_mAh": 1750.0
+      }
+    },
+    {
+      "key": "30min_c34",
+      "duration_min": 30,
+      "band": "marginal",
+      "val_rmse_percent": 0.6407739791916727,
+      "cv_rmse_percent": 3.3995586580542065,
+      "window": {
+        "raw_name": "dV_c34",
+        "centre_frac": 0.68,
+        "dQ_mAh": 3500.0
+      }
+    },
+    {
+      "key": "25min_c2",
+      "duration_min": 25,
+      "band": "marginal",
+      "val_rmse_percent": 0.6426137620393282,
+      "cv_rmse_percent": 3.580503559360489,
+      "window": {
+        "raw_name": "dV_c2",
+        "centre_frac": 0.04,
+        "dQ_mAh": 2916.666666666667
+      }
+    },
+    {
+      "key": "30min_c2",
+      "duration_min": 30,
+      "band": "marginal",
+      "val_rmse_percent": 0.6433962682286104,
+      "cv_rmse_percent": 3.79867680209254,
+      "window": {
+        "raw_name": "dV_c2",
+        "centre_frac": 0.04,
+        "dQ_mAh": 3500.0
+      }
+    },
+    {
+      "key": "20min_c34",
+      "duration_min": 20,
+      "band": "marginal",
+      "val_rmse_percent": 0.6439761911730162,
+      "cv_rmse_percent": 3.000774909078452,
+      "window": {
+        "raw_name": "dV_c34",
+        "centre_frac": 0.68,
+        "dQ_mAh": 2333.333333333333
+      }
+    },
+    {
+      "key": "30min_c4",
+      "duration_min": 30,
+      "band": "marginal",
+      "val_rmse_percent": 0.6481395843756429,
+      "cv_rmse_percent": 3.7099009163128147,
+      "window": {
+        "raw_name": "dV_c4",
+        "centre_frac": 0.08,
+        "dQ_mAh": 3500.0
+      }
+    },
+    {
+      "key": "25min_c3",
+      "duration_min": 25,
+      "band": "marginal",
+      "val_rmse_percent": 0.6513114357869426,
+      "cv_rmse_percent": 3.3752687918796704,
+      "window": {
+        "raw_name": "dV_c3",
+        "centre_frac": 0.06,
+        "dQ_mAh": 2916.666666666667
+      }
+    },
+    {
+      "key": "10min_c32",
+      "duration_min": 10,
+      "band": "marginal",
+      "val_rmse_percent": 0.6542787235014415,
+      "cv_rmse_percent": 2.997117584564055,
+      "window": {
+        "raw_name": "dV_c32",
+        "centre_frac": 0.64,
+        "dQ_mAh": 1166.6666666666665
+      }
+    },
+    {
+      "key": "30min_c13",
+      "duration_min": 30,
+      "band": "marginal",
+      "val_rmse_percent": 0.6589972281454122,
+      "cv_rmse_percent": 3.5532497367970204,
+      "window": {
+        "raw_name": "dV_c13",
+        "centre_frac": 0.26,
+        "dQ_mAh": 3500.0
+      }
+    },
+    {
+      "key": "20min_c3",
+      "duration_min": 20,
+      "band": "marginal",
+      "val_rmse_percent": 0.6658673942299391,
+      "cv_rmse_percent": 3.518372966216271,
+      "window": {
+        "raw_name": "dV_c3",
+        "centre_frac": 0.06,
+        "dQ_mAh": 2333.333333333333
+      }
+    },
+    {
+      "key": "30min_c6",
+      "duration_min": 30,
+      "band": "marginal",
+      "val_rmse_percent": 0.6660708867941353,
+      "cv_rmse_percent": 3.5169236524960996,
+      "window": {
+        "raw_name": "dV_c6",
+        "centre_frac": 0.12,
+        "dQ_mAh": 3500.0
+      }
+    },
+    {
+      "key": "25min_c35",
+      "duration_min": 25,
+      "band": "marginal",
+      "val_rmse_percent": 0.6661478128563927,
+      "cv_rmse_percent": 3.1190412282118567,
+      "window": {
+        "raw_name": "dV_c35",
+        "centre_frac": 0.7,
+        "dQ_mAh": 2916.666666666667
+      }
+    },
+    {
+      "key": "20min_c4",
+      "duration_min": 20,
+      "band": "marginal",
+      "val_rmse_percent": 0.6674504421379102,
+      "cv_rmse_percent": 3.185860734746272,
+      "window": {
+        "raw_name": "dV_c4",
+        "centre_frac": 0.08,
+        "dQ_mAh": 2333.333333333333
+      }
+    },
+    {
+      "key": "10min_c5",
+      "duration_min": 10,
+      "band": "marginal",
+      "val_rmse_percent": 0.6682078559511458,
+      "cv_rmse_percent": 3.475602299409897,
+      "window": {
+        "raw_name": "dV_c5",
+        "centre_frac": 0.1,
+        "dQ_mAh": 1166.6666666666665
+      }
+    },
+    {
+      "key": "10min_c2",
+      "duration_min": 10,
+      "band": "marginal",
+      "val_rmse_percent": 0.671922967771216,
+      "cv_rmse_percent": 3.3429045483058166,
+      "window": {
+        "raw_name": "dV_c2",
+        "centre_frac": 0.04,
+        "dQ_mAh": 1166.6666666666665
+      }
+    },
+    {
+      "key": "20min_c30",
+      "duration_min": 20,
+      "band": "marginal",
+      "val_rmse_percent": 0.6722323104756355,
+      "cv_rmse_percent": 3.7615512878667516,
+      "window": {
+        "raw_name": "dV_c30",
+        "centre_frac": 0.6,
+        "dQ_mAh": 2333.333333333333
+      }
+    },
+    {
+      "key": "25min_c4",
+      "duration_min": 25,
+      "band": "marginal",
+      "val_rmse_percent": 0.6741357810290659,
+      "cv_rmse_percent": 3.8446279692453764,
+      "window": {
+        "raw_name": "dV_c4",
+        "centre_frac": 0.08,
+        "dQ_mAh": 2916.666666666667
+      }
+    },
+    {
+      "key": "25min_c5",
+      "duration_min": 25,
+      "band": "marginal",
+      "val_rmse_percent": 0.6752067166455893,
+      "cv_rmse_percent": 3.3984746940065382,
+      "window": {
+        "raw_name": "dV_c5",
+        "centre_frac": 0.1,
+        "dQ_mAh": 2916.666666666667
+      }
+    },
+    {
+      "key": "30min_c8",
+      "duration_min": 30,
+      "band": "marginal",
+      "val_rmse_percent": 0.6764388623989591,
+      "cv_rmse_percent": 3.547396402961318,
+      "window": {
+        "raw_name": "dV_c8",
+        "centre_frac": 0.16,
+        "dQ_mAh": 3500.0
+      }
+    },
+    {
+      "key": "20min_c6",
+      "duration_min": 20,
+      "band": "marginal",
+      "val_rmse_percent": 0.6766300776385454,
+      "cv_rmse_percent": 3.564188104133486,
+      "window": {
+        "raw_name": "dV_c6",
+        "centre_frac": 0.12,
+        "dQ_mAh": 2333.333333333333
+      }
+    },
+    {
+      "key": "25min_c6",
+      "duration_min": 25,
+      "band": "marginal",
+      "val_rmse_percent": 0.6784436922524948,
+      "cv_rmse_percent": 3.514963319871505,
+      "window": {
+        "raw_name": "dV_c6",
+        "centre_frac": 0.12,
+        "dQ_mAh": 2916.666666666667
+      }
+    },
+    {
+      "key": "15min_c2",
+      "duration_min": 15,
+      "band": "marginal",
+      "val_rmse_percent": 0.6815250786997028,
+      "cv_rmse_percent": 3.4343719620070337,
+      "window": {
+        "raw_name": "dV_c2",
+        "centre_frac": 0.04,
+        "dQ_mAh": 1750.0
+      }
+    },
+    {
+      "key": "10min_c34",
+      "duration_min": 10,
+      "band": "marginal",
+      "val_rmse_percent": 0.6839059698610626,
+      "cv_rmse_percent": 3.3558296499916676,
+      "window": {
+        "raw_name": "dV_c34",
+        "centre_frac": 0.68,
+        "dQ_mAh": 1166.6666666666665
+      }
+    },
+    {
+      "key": "30min_c30",
+      "duration_min": 30,
+      "band": "marginal",
+      "val_rmse_percent": 0.6857110532945099,
+      "cv_rmse_percent": 3.5864621239810557,
+      "window": {
+        "raw_name": "dV_c30",
+        "centre_frac": 0.6,
+        "dQ_mAh": 3500.0
+      }
+    },
+    {
+      "key": "10min_c4",
+      "duration_min": 10,
+      "band": "marginal",
+      "val_rmse_percent": 0.6866930256963982,
+      "cv_rmse_percent": 3.59973574794563,
+      "window": {
+        "raw_name": "dV_c4",
+        "centre_frac": 0.08,
+        "dQ_mAh": 1166.6666666666665
+      }
+    },
+    {
+      "key": "10min_c13",
+      "duration_min": 10,
+      "band": "marginal",
+      "val_rmse_percent": 0.6885950910557083,
+      "cv_rmse_percent": 3.481590737697436,
+      "window": {
+        "raw_name": "dV_c13",
+        "centre_frac": 0.26,
+        "dQ_mAh": 1166.6666666666665
+      }
+    },
+    {
+      "key": "20min_c5",
+      "duration_min": 20,
+      "band": "marginal",
+      "val_rmse_percent": 0.6908843942557678,
+      "cv_rmse_percent": 3.1614906569699626,
+      "window": {
+        "raw_name": "dV_c5",
+        "centre_frac": 0.1,
+        "dQ_mAh": 2333.333333333333
+      }
+    },
+    {
+      "key": "30min_c15",
+      "duration_min": 30,
+      "band": "marginal",
+      "val_rmse_percent": 0.692944493373304,
+      "cv_rmse_percent": 3.738787571630135,
+      "window": {
+        "raw_name": "dV_c15",
+        "centre_frac": 0.3,
+        "dQ_mAh": 3500.0
+      }
+    },
+    {
+      "key": "15min_c33",
+      "duration_min": 15,
+      "band": "marginal",
+      "val_rmse_percent": 0.693920106157668,
+      "cv_rmse_percent": 3.0533908624426065,
+      "window": {
+        "raw_name": "dV_c33",
+        "centre_frac": 0.66,
+        "dQ_mAh": 1750.0
+      }
+    },
+    {
+      "key": "30min_c47",
+      "duration_min": 30,
+      "band": "marginal",
+      "val_rmse_percent": 0.6944456107490213,
+      "cv_rmse_percent": 3.5134823903577233,
+      "window": {
+        "raw_name": "dV_c47",
+        "centre_frac": 0.94,
+        "dQ_mAh": 3500.0
+      }
+    },
+    {
+      "key": "10min_c33",
+      "duration_min": 10,
+      "band": "marginal",
+      "val_rmse_percent": 0.6953277519040743,
+      "cv_rmse_percent": 3.6437497185171734,
+      "window": {
+        "raw_name": "dV_c33",
+        "centre_frac": 0.66,
+        "dQ_mAh": 1166.6666666666665
+      }
+    },
+    {
+      "key": "25min_c47",
+      "duration_min": 25,
+      "band": "marginal",
+      "val_rmse_percent": 0.7024683552837628,
+      "cv_rmse_percent": 3.521460054385501,
+      "window": {
+        "raw_name": "dV_c47",
+        "centre_frac": 0.94,
+        "dQ_mAh": 2916.666666666667
+      }
+    },
+    {
+      "key": "30min_c31",
+      "duration_min": 30,
+      "band": "marginal",
+      "val_rmse_percent": 0.702530121949434,
+      "cv_rmse_percent": 3.520139461053577,
+      "window": {
+        "raw_name": "dV_c31",
+        "centre_frac": 0.62,
+        "dQ_mAh": 3500.0
+      }
+    },
+    {
+      "key": "15min_c47",
+      "duration_min": 15,
+      "band": "marginal",
+      "val_rmse_percent": 0.7038595342923517,
+      "cv_rmse_percent": 3.562009345305998,
+      "window": {
+        "raw_name": "dV_c47",
+        "centre_frac": 0.94,
+        "dQ_mAh": 1750.0
+      }
+    },
+    {
+      "key": "10min_c47",
+      "duration_min": 10,
+      "band": "marginal",
+      "val_rmse_percent": 0.7102656746779453,
+      "cv_rmse_percent": 3.3198218532456885,
+      "window": {
+        "raw_name": "dV_c47",
+        "centre_frac": 0.94,
+        "dQ_mAh": 1166.6666666666665
+      }
+    },
+    {
+      "key": "15min_c4",
+      "duration_min": 15,
+      "band": "marginal",
+      "val_rmse_percent": 0.7203263718383195,
+      "cv_rmse_percent": 3.3757727828268296,
+      "window": {
+        "raw_name": "dV_c4",
+        "centre_frac": 0.08,
+        "dQ_mAh": 1750.0
+      }
+    },
+    {
+      "key": "15min_c5",
+      "duration_min": 15,
+      "band": "marginal",
+      "val_rmse_percent": 0.728567283900601,
+      "cv_rmse_percent": 3.1305175051818095,
+      "window": {
+        "raw_name": "dV_c5",
+        "centre_frac": 0.1,
+        "dQ_mAh": 1750.0
+      }
+    },
+    {
+      "key": "30min_c33",
+      "duration_min": 30,
+      "band": "marginal",
+      "val_rmse_percent": 0.72867653900547,
+      "cv_rmse_percent": 3.1644121438750523,
+      "window": {
+        "raw_name": "dV_c33",
+        "centre_frac": 0.66,
+        "dQ_mAh": 3500.0
+      }
+    },
+    {
+      "key": "30min_c9",
+      "duration_min": 30,
+      "band": "marginal",
+      "val_rmse_percent": 0.7300664898821578,
+      "cv_rmse_percent": 3.5049933801662916,
+      "window": {
+        "raw_name": "dV_c9",
+        "centre_frac": 0.18,
+        "dQ_mAh": 3500.0
+      }
+    },
+    {
+      "key": "20min_c8",
+      "duration_min": 20,
+      "band": "marginal",
+      "val_rmse_percent": 0.7320062499734554,
+      "cv_rmse_percent": 3.51646575591307,
+      "window": {
+        "raw_name": "dV_c8",
+        "centre_frac": 0.16,
+        "dQ_mAh": 2333.333333333333
+      }
+    },
+    {
+      "key": "20min_c39",
+      "duration_min": 20,
+      "band": "marginal",
+      "val_rmse_percent": 0.7376828030291904,
+      "cv_rmse_percent": 3.6225163506781097,
+      "window": {
+        "raw_name": "dV_c39",
+        "centre_frac": 0.78,
+        "dQ_mAh": 2333.333333333333
+      }
+    },
+    {
+      "key": "30min_c35",
+      "duration_min": 30,
+      "band": "marginal",
+      "val_rmse_percent": 0.7418547720018498,
+      "cv_rmse_percent": 3.151094445939309,
+      "window": {
+        "raw_name": "dV_c35",
+        "centre_frac": 0.7,
+        "dQ_mAh": 3500.0
+      }
+    },
+    {
+      "key": "20min_c32",
+      "duration_min": 20,
+      "band": "marginal",
+      "val_rmse_percent": 0.7457219203349313,
+      "cv_rmse_percent": 3.2575459166755847,
+      "window": {
+        "raw_name": "dV_c32",
+        "centre_frac": 0.64,
+        "dQ_mAh": 2333.333333333333
+      }
+    },
+    {
+      "key": "20min_c47",
+      "duration_min": 20,
+      "band": "marginal",
+      "val_rmse_percent": 0.7482460298193669,
+      "cv_rmse_percent": 3.525046541325452,
+      "window": {
+        "raw_name": "dV_c47",
+        "centre_frac": 0.94,
+        "dQ_mAh": 2333.333333333333
+      }
+    },
+    {
+      "key": "10min_c7",
+      "duration_min": 10,
+      "band": "marginal",
+      "val_rmse_percent": 0.7540587394289602,
+      "cv_rmse_percent": 3.353258283180097,
+      "window": {
+        "raw_name": "dV_c7",
+        "centre_frac": 0.14,
+        "dQ_mAh": 1166.6666666666665
+      }
+    },
+    {
+      "key": "20min_c7",
+      "duration_min": 20,
+      "band": "marginal",
+      "val_rmse_percent": 0.7616546581384674,
+      "cv_rmse_percent": 3.5182541600075123,
+      "window": {
+        "raw_name": "dV_c7",
+        "centre_frac": 0.14,
+        "dQ_mAh": 2333.333333333333
+      }
+    },
+    {
+      "key": "20min_c35",
+      "duration_min": 20,
+      "band": "marginal",
+      "val_rmse_percent": 0.763671602981101,
+      "cv_rmse_percent": 3.537713703367391,
+      "window": {
+        "raw_name": "dV_c35",
+        "centre_frac": 0.7,
+        "dQ_mAh": 2333.333333333333
+      }
+    },
+    {
+      "key": "10min_c30",
+      "duration_min": 10,
+      "band": "marginal",
+      "val_rmse_percent": 0.7648785954772926,
+      "cv_rmse_percent": 3.6998305646355063,
+      "window": {
+        "raw_name": "dV_c30",
+        "centre_frac": 0.6,
+        "dQ_mAh": 1166.6666666666665
+      }
+    },
+    {
+      "key": "25min_c16",
+      "duration_min": 25,
+      "band": "marginal",
+      "val_rmse_percent": 0.7674415924606731,
+      "cv_rmse_percent": 3.586742932666754,
+      "window": {
+        "raw_name": "dV_c16",
+        "centre_frac": 0.32,
+        "dQ_mAh": 2916.666666666667
+      }
+    },
+    {
+      "key": "15min_c7",
+      "duration_min": 15,
+      "band": "marginal",
+      "val_rmse_percent": 0.7728427078241422,
+      "cv_rmse_percent": 3.561199026571836,
+      "window": {
+        "raw_name": "dV_c7",
+        "centre_frac": 0.14,
+        "dQ_mAh": 1750.0
+      }
+    },
+    {
+      "key": "30min_c7",
+      "duration_min": 30,
+      "band": "marginal",
+      "val_rmse_percent": 0.7779646504131502,
+      "cv_rmse_percent": 3.468083970281186,
+      "window": {
+        "raw_name": "dV_c7",
+        "centre_frac": 0.14,
+        "dQ_mAh": 3500.0
+      }
+    },
+    {
+      "key": "20min_c9",
+      "duration_min": 20,
+      "band": "marginal",
+      "val_rmse_percent": 0.7781412452184775,
+      "cv_rmse_percent": 3.4074971915159993,
+      "window": {
+        "raw_name": "dV_c9",
+        "centre_frac": 0.18,
+        "dQ_mAh": 2333.333333333333
+      }
+    },
+    {
+      "key": "25min_c8",
+      "duration_min": 25,
+      "band": "marginal",
+      "val_rmse_percent": 0.7819559107220023,
+      "cv_rmse_percent": 3.4850680250193538,
+      "window": {
+        "raw_name": "dV_c8",
+        "centre_frac": 0.16,
+        "dQ_mAh": 2916.666666666667
+      }
+    },
+    {
+      "key": "25min_c32",
+      "duration_min": 25,
+      "band": "marginal",
+      "val_rmse_percent": 0.7848544810748481,
+      "cv_rmse_percent": 3.6708072369140377,
+      "window": {
+        "raw_name": "dV_c32",
+        "centre_frac": 0.64,
+        "dQ_mAh": 2916.666666666667
+      }
+    },
+    {
+      "key": "15min_c10",
+      "duration_min": 15,
+      "band": "marginal",
+      "val_rmse_percent": 0.7924613489842957,
+      "cv_rmse_percent": 3.161567311125147,
+      "window": {
+        "raw_name": "dV_c10",
+        "centre_frac": 0.2,
+        "dQ_mAh": 1750.0
+      }
+    },
+    {
+      "key": "25min_c10",
+      "duration_min": 25,
+      "band": "marginal",
+      "val_rmse_percent": 0.795629003064452,
+      "cv_rmse_percent": 3.3421654274771933,
+      "window": {
+        "raw_name": "dV_c10",
+        "centre_frac": 0.2,
+        "dQ_mAh": 2916.666666666667
+      }
+    },
+    {
+      "key": "30min_c11",
+      "duration_min": 30,
+      "band": "marginal",
+      "val_rmse_percent": 0.7979572999725607,
+      "cv_rmse_percent": 3.5756830091937855,
+      "window": {
+        "raw_name": "dV_c11",
+        "centre_frac": 0.22,
+        "dQ_mAh": 3500.0
+      }
+    },
+    {
+      "key": "25min_c30",
+      "duration_min": 25,
+      "band": "marginal",
+      "val_rmse_percent": 0.800775198742318,
+      "cv_rmse_percent": 3.598688758726771,
+      "window": {
+        "raw_name": "dV_c30",
+        "centre_frac": 0.6,
+        "dQ_mAh": 2916.666666666667
+      }
+    },
+    {
+      "key": "20min_c12",
+      "duration_min": 20,
+      "band": "marginal",
+      "val_rmse_percent": 0.8023219273400861,
+      "cv_rmse_percent": 3.514950904020439,
+      "window": {
+        "raw_name": "dV_c12",
+        "centre_frac": 0.24,
+        "dQ_mAh": 2333.333333333333
+      }
+    },
+    {
+      "key": "15min_c9",
+      "duration_min": 15,
+      "band": "marginal",
+      "val_rmse_percent": 0.8039352683991934,
+      "cv_rmse_percent": 3.494852584403956,
+      "window": {
+        "raw_name": "dV_c9",
+        "centre_frac": 0.18,
+        "dQ_mAh": 1750.0
+      }
+    },
+    {
+      "key": "15min_c30",
+      "duration_min": 15,
+      "band": "marginal",
+      "val_rmse_percent": 0.8056375890935856,
+      "cv_rmse_percent": 3.476183351662782,
+      "window": {
+        "raw_name": "dV_c30",
+        "centre_frac": 0.6,
+        "dQ_mAh": 1750.0
+      }
+    },
+    {
+      "key": "15min_c14",
+      "duration_min": 15,
+      "band": "marginal",
+      "val_rmse_percent": 0.8061220306563146,
+      "cv_rmse_percent": 3.5495973047995397,
+      "window": {
+        "raw_name": "dV_c14",
+        "centre_frac": 0.28,
+        "dQ_mAh": 1750.0
+      }
+    },
+    {
+      "key": "25min_c9",
+      "duration_min": 25,
+      "band": "marginal",
+      "val_rmse_percent": 0.8124293362423336,
+      "cv_rmse_percent": 3.4358715152102546,
+      "window": {
+        "raw_name": "dV_c9",
+        "centre_frac": 0.18,
+        "dQ_mAh": 2916.666666666667
+      }
+    },
+    {
+      "key": "25min_c14",
+      "duration_min": 25,
+      "band": "marginal",
+      "val_rmse_percent": 0.8152072902754285,
+      "cv_rmse_percent": 3.5310471863705084,
+      "window": {
+        "raw_name": "dV_c14",
+        "centre_frac": 0.28,
+        "dQ_mAh": 2916.666666666667
+      }
+    },
+    {
+      "key": "15min_c35",
+      "duration_min": 15,
+      "band": "marginal",
+      "val_rmse_percent": 0.815622497352267,
+      "cv_rmse_percent": 5.374318586070376,
+      "window": {
+        "raw_name": "dV_c35",
+        "centre_frac": 0.7,
+        "dQ_mAh": 1750.0
+      }
+    },
+    {
+      "key": "30min_c10",
+      "duration_min": 30,
+      "band": "marginal",
+      "val_rmse_percent": 0.8222732102793407,
+      "cv_rmse_percent": 3.3753783020556836,
+      "window": {
+        "raw_name": "dV_c10",
+        "centre_frac": 0.2,
+        "dQ_mAh": 3500.0
+      }
+    },
+    {
+      "key": "30min_c16",
+      "duration_min": 30,
+      "band": "marginal",
+      "val_rmse_percent": 0.8250378001955988,
+      "cv_rmse_percent": 4.174672341568176,
+      "window": {
+        "raw_name": "dV_c16",
+        "centre_frac": 0.32,
+        "dQ_mAh": 3500.0
+      }
+    },
+    {
+      "key": "20min_c14",
+      "duration_min": 20,
+      "band": "marginal",
+      "val_rmse_percent": 0.8397272673170074,
+      "cv_rmse_percent": 3.6937761248025556,
+      "window": {
+        "raw_name": "dV_c14",
+        "centre_frac": 0.28,
+        "dQ_mAh": 2333.333333333333
+      }
+    },
+    {
+      "key": "15min_c39",
+      "duration_min": 15,
+      "band": "marginal",
+      "val_rmse_percent": 0.8424649192851854,
+      "cv_rmse_percent": 3.6027226035362707,
+      "window": {
+        "raw_name": "dV_c39",
+        "centre_frac": 0.78,
+        "dQ_mAh": 1750.0
+      }
+    },
+    {
+      "key": "30min_c12",
+      "duration_min": 30,
+      "band": "marginal",
+      "val_rmse_percent": 0.8458725102906134,
+      "cv_rmse_percent": 3.5194911664985176,
+      "window": {
+        "raw_name": "dV_c12",
+        "centre_frac": 0.24,
+        "dQ_mAh": 3500.0
+      }
+    },
+    {
+      "key": "20min_c16",
+      "duration_min": 20,
+      "band": "marginal",
+      "val_rmse_percent": 0.8473706520758367,
+      "cv_rmse_percent": 4.216406509744068,
+      "window": {
+        "raw_name": "dV_c16",
+        "centre_frac": 0.32,
+        "dQ_mAh": 2333.333333333333
+      }
+    },
+    {
+      "key": "10min_c40",
+      "duration_min": 10,
+      "band": "marginal",
+      "val_rmse_percent": 0.8547351976060631,
+      "cv_rmse_percent": 3.600893018972711,
+      "window": {
+        "raw_name": "dV_c40",
+        "centre_frac": 0.8,
+        "dQ_mAh": 1166.6666666666665
+      }
+    },
+    {
+      "key": "30min_c14",
+      "duration_min": 30,
+      "band": "marginal",
+      "val_rmse_percent": 0.8560880854899072,
+      "cv_rmse_percent": 3.487185662429705,
+      "window": {
+        "raw_name": "dV_c14",
+        "centre_frac": 0.28,
+        "dQ_mAh": 3500.0
+      }
+    },
+    {
+      "key": "10min_c10",
+      "duration_min": 10,
+      "band": "marginal",
+      "val_rmse_percent": 0.8574032880550274,
+      "cv_rmse_percent": 3.0244766387457944,
+      "window": {
+        "raw_name": "dV_c10",
+        "centre_frac": 0.2,
+        "dQ_mAh": 1166.6666666666665
+      }
+    },
+    {
+      "key": "20min_c11",
+      "duration_min": 20,
+      "band": "marginal",
+      "val_rmse_percent": 0.8585025263098393,
+      "cv_rmse_percent": 3.4815939644171676,
+      "window": {
+        "raw_name": "dV_c11",
+        "centre_frac": 0.22,
+        "dQ_mAh": 2333.333333333333
+      }
+    },
+    {
+      "key": "25min_c12",
+      "duration_min": 25,
+      "band": "marginal",
+      "val_rmse_percent": 0.8596898445531731,
+      "cv_rmse_percent": 3.5155526520014795,
+      "window": {
+        "raw_name": "dV_c12",
+        "centre_frac": 0.24,
+        "dQ_mAh": 2916.666666666667
+      }
+    },
+    {
+      "key": "10min_c16",
+      "duration_min": 10,
+      "band": "marginal",
+      "val_rmse_percent": 0.8641700548012891,
+      "cv_rmse_percent": 3.775376184526139,
+      "window": {
+        "raw_name": "dV_c16",
+        "centre_frac": 0.32,
+        "dQ_mAh": 1166.6666666666665
+      }
+    },
+    {
+      "key": "25min_c11",
+      "duration_min": 25,
+      "band": "marginal",
+      "val_rmse_percent": 0.8682305448903871,
+      "cv_rmse_percent": 3.478896229217629,
+      "window": {
+        "raw_name": "dV_c11",
+        "centre_frac": 0.22,
+        "dQ_mAh": 2916.666666666667
+      }
+    },
+    {
+      "key": "30min_c40",
+      "duration_min": 30,
+      "band": "marginal",
+      "val_rmse_percent": 0.8720532728472793,
+      "cv_rmse_percent": 3.248877296816534,
+      "window": {
+        "raw_name": "dV_c40",
+        "centre_frac": 0.8,
+        "dQ_mAh": 3500.0
+      }
+    },
+    {
+      "key": "20min_c27",
+      "duration_min": 20,
+      "band": "marginal",
+      "val_rmse_percent": 0.8770872499512409,
+      "cv_rmse_percent": 2.372269261725071,
+      "window": {
+        "raw_name": "dV_c27",
+        "centre_frac": 0.54,
+        "dQ_mAh": 2333.333333333333
+      }
+    },
+    {
+      "key": "15min_c12",
+      "duration_min": 15,
+      "band": "marginal",
+      "val_rmse_percent": 0.8914114519075477,
+      "cv_rmse_percent": 3.491588970504532,
+      "window": {
+        "raw_name": "dV_c12",
+        "centre_frac": 0.24,
+        "dQ_mAh": 1750.0
+      }
+    },
+    {
+      "key": "25min_c27",
+      "duration_min": 25,
+      "band": "marginal",
+      "val_rmse_percent": 0.8944859082674875,
+      "cv_rmse_percent": 3.623797115752264,
+      "window": {
+        "raw_name": "dV_c27",
+        "centre_frac": 0.54,
+        "dQ_mAh": 2916.666666666667
+      }
+    },
+    {
+      "key": "30min_c46",
+      "duration_min": 30,
+      "band": "marginal",
+      "val_rmse_percent": 0.8954427107584849,
+      "cv_rmse_percent": 3.5613743837227747,
+      "window": {
+        "raw_name": "dV_c46",
+        "centre_frac": 0.92,
+        "dQ_mAh": 3500.0
+      }
+    },
+    {
+      "key": "20min_c40",
+      "duration_min": 20,
+      "band": "marginal",
+      "val_rmse_percent": 0.908280709342829,
+      "cv_rmse_percent": 3.473843906012249,
+      "window": {
+        "raw_name": "dV_c40",
+        "centre_frac": 0.8,
+        "dQ_mAh": 2333.333333333333
+      }
+    },
+    {
+      "key": "10min_c44",
+      "duration_min": 10,
+      "band": "marginal",
+      "val_rmse_percent": 0.9113569312591738,
+      "cv_rmse_percent": 3.3278594452226473,
+      "window": {
+        "raw_name": "dV_c44",
+        "centre_frac": 0.88,
+        "dQ_mAh": 1166.6666666666665
+      }
+    },
+    {
+      "key": "10min_c9",
+      "duration_min": 10,
+      "band": "marginal",
+      "val_rmse_percent": 0.9135704439603362,
+      "cv_rmse_percent": 3.014891059643956,
+      "window": {
+        "raw_name": "dV_c9",
+        "centre_frac": 0.18,
+        "dQ_mAh": 1166.6666666666665
+      }
+    },
+    {
+      "key": "15min_c11",
+      "duration_min": 15,
+      "band": "marginal",
+      "val_rmse_percent": 0.9156726805676372,
+      "cv_rmse_percent": 3.5263886007613765,
+      "window": {
+        "raw_name": "dV_c11",
+        "centre_frac": 0.22,
+        "dQ_mAh": 1750.0
+      }
+    },
+    {
+      "key": "10min_c14",
+      "duration_min": 10,
+      "band": "marginal",
+      "val_rmse_percent": 0.9202770398922178,
+      "cv_rmse_percent": 3.5868312328090908,
+      "window": {
+        "raw_name": "dV_c14",
+        "centre_frac": 0.28,
+        "dQ_mAh": 1166.6666666666665
+      }
+    },
+    {
+      "key": "10min_c27",
+      "duration_min": 10,
+      "band": "marginal",
+      "val_rmse_percent": 0.920873610136914,
+      "cv_rmse_percent": 3.484155537264356,
+      "window": {
+        "raw_name": "dV_c27",
+        "centre_frac": 0.54,
+        "dQ_mAh": 1166.6666666666665
+      }
+    },
+    {
+      "key": "20min_c36",
+      "duration_min": 20,
+      "band": "marginal",
+      "val_rmse_percent": 0.945332513851458,
+      "cv_rmse_percent": 4.061751512736314,
+      "window": {
+        "raw_name": "dV_c36",
+        "centre_frac": 0.72,
+        "dQ_mAh": 2333.333333333333
+      }
+    },
+    {
+      "key": "10min_c36",
+      "duration_min": 10,
+      "band": "marginal",
+      "val_rmse_percent": 0.9461749826882518,
+      "cv_rmse_percent": 4.259633810420944,
+      "window": {
+        "raw_name": "dV_c36",
+        "centre_frac": 0.72,
+        "dQ_mAh": 1166.6666666666665
+      }
+    },
+    {
+      "key": "15min_c16",
+      "duration_min": 15,
+      "band": "marginal",
+      "val_rmse_percent": 0.9523318692982962,
+      "cv_rmse_percent": 4.476127174781886,
+      "window": {
+        "raw_name": "dV_c16",
+        "centre_frac": 0.32,
+        "dQ_mAh": 1750.0
+      }
+    },
+    {
+      "key": "25min_c29",
+      "duration_min": 25,
+      "band": "marginal",
+      "val_rmse_percent": 0.9559383363406735,
+      "cv_rmse_percent": 3.5601318307775456,
+      "window": {
+        "raw_name": "dV_c29",
+        "centre_frac": 0.58,
+        "dQ_mAh": 2916.666666666667
+      }
+    },
+    {
+      "key": "25min_c40",
+      "duration_min": 25,
+      "band": "marginal",
+      "val_rmse_percent": 0.9597046019378515,
+      "cv_rmse_percent": 3.158234341662426,
+      "window": {
+        "raw_name": "dV_c40",
+        "centre_frac": 0.8,
+        "dQ_mAh": 2916.666666666667
+      }
+    },
+    {
+      "key": "25min_c46",
+      "duration_min": 25,
+      "band": "marginal",
+      "val_rmse_percent": 0.9704863106249098,
+      "cv_rmse_percent": 3.556592852486937,
+      "window": {
+        "raw_name": "dV_c46",
+        "centre_frac": 0.92,
+        "dQ_mAh": 2916.666666666667
+      }
+    },
+    {
+      "key": "15min_c28",
+      "duration_min": 15,
+      "band": "marginal",
+      "val_rmse_percent": 0.9852188868601759,
+      "cv_rmse_percent": 3.477289953547772,
+      "window": {
+        "raw_name": "dV_c28",
+        "centre_frac": 0.56,
+        "dQ_mAh": 1750.0
+      }
+    },
+    {
+      "key": "30min_c28",
+      "duration_min": 30,
+      "band": "marginal",
+      "val_rmse_percent": 0.9918266668662948,
+      "cv_rmse_percent": 3.568883303566585,
+      "window": {
+        "raw_name": "dV_c28",
+        "centre_frac": 0.56,
+        "dQ_mAh": 3500.0
+      }
+    },
+    {
+      "key": "15min_c17",
+      "duration_min": 15,
+      "band": "marginal",
+      "val_rmse_percent": 0.9983451792848352,
+      "cv_rmse_percent": 5.023127573559454,
+      "window": {
+        "raw_name": "dV_c17",
+        "centre_frac": 0.34,
+        "dQ_mAh": 1750.0
+      }
+    }
+  ]
+}

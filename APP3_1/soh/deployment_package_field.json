@@ -1,0 +1,318 @@
+{
+  "generated_at": "2026-09-03T20:30:44.157578+00:00",
+  "network": "3-12 tanh, alpha=0.01",
+  "field_current_a": 7.0,
+  "reference_case": "C01",
+  "bands": {
+    "accept": 0.5,
+    "marginal": 1.0
+  },
+  "cc_gate": {
+    "stability_tolerance": 0.02,
+    "stability_window_s": 60.0,
+    "cooldown_after_step_s": 60.0,
+    "step_threshold": 0.1
+  },
+  "durations": [
+    {
+      "minutes": 10,
+      "dQ_mAh": 1166.6666666666665,
+      "combinations": [
+        {
+          "name": "best3",
+          "band": "accept",
+          "val_rmse_percent": 0.40223110943201373,
+          "cv_rmse_percent": 4.0168146438990275,
+          "windows": [
+            {
+              "raw_name": "dV_c1",
+              "centre_frac": 0.1,
+              "dQ_mAh": 1166.6666666666665
+            },
+            {
+              "raw_name": "dV_c4",
+              "centre_frac": 0.4,
+              "dQ_mAh": 1166.6666666666665
+            },
+            {
+              "raw_name": "dV_c7",
+              "centre_frac": 0.7000000000000001,
+              "dQ_mAh": 1166.6666666666665
+            }
+          ]
+        },
+        {
+          "name": "best2",
+          "band": "accept",
+          "val_rmse_percent": 0.35317704171911385,
+          "cv_rmse_percent": 4.495570672743229,
+          "windows": [
+            {
+              "raw_name": "dV_c1",
+              "centre_frac": 0.1,
+              "dQ_mAh": 1166.6666666666665
+            },
+            {
+              "raw_name": "dV_c4",
+              "centre_frac": 0.4,
+              "dQ_mAh": 1166.6666666666665
+            }
+          ]
+        },
+        {
+          "name": "best1",
+          "band": "marginal",
+          "val_rmse_percent": 0.5812012658602353,
+          "cv_rmse_percent": 3.9270159741718684,
+          "windows": [
+            {
+              "raw_name": "dV_c7",
+              "centre_frac": 0.7000000000000001,
+              "dQ_mAh": 1166.6666666666665
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "minutes": 15,
+      "dQ_mAh": 1750.0,
+      "combinations": [
+        {
+          "name": "best3",
+          "band": "accept",
+          "val_rmse_percent": 0.30751482066754354,
+          "cv_rmse_percent": 3.4592845383968647,
+          "windows": [
+            {
+              "raw_name": "dV_c1",
+              "centre_frac": 0.1,
+              "dQ_mAh": 1750.0
+            },
+            {
+              "raw_name": "dV_c3",
+              "centre_frac": 0.30000000000000004,
+              "dQ_mAh": 1750.0
+            },
+            {
+              "raw_name": "dV_c7",
+              "centre_frac": 0.7000000000000001,
+              "dQ_mAh": 1750.0
+            }
+          ]
+        },
+        {
+          "name": "best2",
+          "band": "accept",
+          "val_rmse_percent": 0.43749133070655627,
+          "cv_rmse_percent": 4.433183253712338,
+          "windows": [
+            {
+              "raw_name": "dV_c4",
+              "centre_frac": 0.4,
+              "dQ_mAh": 1750.0
+            },
+            {
+              "raw_name": "dV_c8",
+              "centre_frac": 0.8,
+              "dQ_mAh": 1750.0
+            }
+          ]
+        },
+        {
+          "name": "best1",
+          "band": "marginal",
+          "val_rmse_percent": 0.728567283900601,
+          "cv_rmse_percent": 3.1305175051818095,
+          "windows": [
+            {
+              "raw_name": "dV_c1",
+              "centre_frac": 0.1,
+              "dQ_mAh": 1750.0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "minutes": 20,
+      "dQ_mAh": 2333.333333333333,
+      "combinations": [
+        {
+          "name": "best3",
+          "band": "accept",
+          "val_rmse_percent": 0.3722031536229388,
+          "cv_rmse_percent": 4.452821426845214,
+          "windows": [
+            {
+              "raw_name": "dV_c1",
+              "centre_frac": 0.1,
+              "dQ_mAh": 2333.333333333333
+            },
+            {
+              "raw_name": "dV_c4",
+              "centre_frac": 0.4,
+              "dQ_mAh": 2333.333333333333
+            },
+            {
+              "raw_name": "dV_c6",
+              "centre_frac": 0.6,
+              "dQ_mAh": 2333.333333333333
+            }
+          ]
+        },
+        {
+          "name": "best2",
+          "band": "accept",
+          "val_rmse_percent": 0.4335351266379249,
+          "cv_rmse_percent": 4.443132869016208,
+          "windows": [
+            {
+              "raw_name": "dV_c1",
+              "centre_frac": 0.1,
+              "dQ_mAh": 2333.333333333333
+            },
+            {
+              "raw_name": "dV_c4",
+              "centre_frac": 0.4,
+              "dQ_mAh": 2333.333333333333
+            }
+          ]
+        },
+        {
+          "name": "best1",
+          "band": "marginal",
+          "val_rmse_percent": 0.6722323104756355,
+          "cv_rmse_percent": 3.7615512878667516,
+          "windows": [
+            {
+              "raw_name": "dV_c6",
+              "centre_frac": 0.6,
+              "dQ_mAh": 2333.333333333333
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "minutes": 25,
+      "dQ_mAh": 2916.666666666667,
+      "combinations": [
+        {
+          "name": "best3",
+          "band": "accept",
+          "val_rmse_percent": 0.28570313489913296,
+          "cv_rmse_percent": 3.4536311679939904,
+          "windows": [
+            {
+              "raw_name": "dV_c1",
+              "centre_frac": 0.1,
+              "dQ_mAh": 2916.666666666667
+            },
+            {
+              "raw_name": "dV_c3",
+              "centre_frac": 0.30000000000000004,
+              "dQ_mAh": 2916.666666666667
+            },
+            {
+              "raw_name": "dV_c7",
+              "centre_frac": 0.7000000000000001,
+              "dQ_mAh": 2916.666666666667
+            }
+          ]
+        },
+        {
+          "name": "best2",
+          "band": "accept",
+          "val_rmse_percent": 0.49618694463189467,
+          "cv_rmse_percent": 4.1366227851466535,
+          "windows": [
+            {
+              "raw_name": "dV_c1",
+              "centre_frac": 0.1,
+              "dQ_mAh": 2916.666666666667
+            },
+            {
+              "raw_name": "dV_c4",
+              "centre_frac": 0.4,
+              "dQ_mAh": 2916.666666666667
+            }
+          ]
+        },
+        {
+          "name": "best1",
+          "band": "marginal",
+          "val_rmse_percent": 0.6672704078144083,
+          "cv_rmse_percent": 3.13629225733826,
+          "windows": [
+            {
+              "raw_name": "dV_c7",
+              "centre_frac": 0.7000000000000001,
+              "dQ_mAh": 2916.666666666667
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "minutes": 30,
+      "dQ_mAh": 3500.0,
+      "combinations": [
+        {
+          "name": "best3",
+          "band": "accept",
+          "val_rmse_percent": 0.27792761659379406,
+          "cv_rmse_percent": 3.4565346415915634,
+          "windows": [
+            {
+              "raw_name": "dV_c1",
+              "centre_frac": 0.1,
+              "dQ_mAh": 3500.0
+            },
+            {
+              "raw_name": "dV_c3",
+              "centre_frac": 0.30000000000000004,
+              "dQ_mAh": 3500.0
+            },
+            {
+              "raw_name": "dV_c7",
+              "centre_frac": 0.7000000000000001,
+              "dQ_mAh": 3500.0
+            }
+          ]
+        },
+        {
+          "name": "best2",
+          "band": "accept",
+          "val_rmse_percent": 0.4437035307478718,
+          "cv_rmse_percent": 4.223248121237488,
+          "windows": [
+            {
+              "raw_name": "dV_c1",
+              "centre_frac": 0.1,
+              "dQ_mAh": 3500.0
+            },
+            {
+              "raw_name": "dV_c4",
+              "centre_frac": 0.4,
+              "dQ_mAh": 3500.0
+            }
+          ]
+        },
+        {
+          "name": "best1",
+          "band": "marginal",
+          "val_rmse_percent": 0.6372168702433288,
+          "cv_rmse_percent": 3.101414820667376,
+          "windows": [
+            {
+              "raw_name": "dV_c1",
+              "centre_frac": 0.1,
+              "dQ_mAh": 3500.0
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
