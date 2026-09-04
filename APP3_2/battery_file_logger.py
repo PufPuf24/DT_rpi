@@ -45,6 +45,7 @@ class BatteryFileLogger:
         cols += ["ProudIN_A", "ProudOUT_A"]
         cols += [f"T_{label}" for label in self.tempLabels]
         cols += ["Rele_IN(Photovoltaics)", "Rele_OUT(Load)"]
+        cols += ["SOC_CC_pct", "SOC_EKF_pct"]
         return cols
 
     def _summaryHeader(self):
@@ -74,18 +75,19 @@ class BatteryFileLogger:
         return "ON" if state else "OFF"
 
     def _detailRow(self, timestamp, batteryVoltages, currentIN, currentOUT,
-                   temperatures, relayIN, relayOUT):
+                   temperatures, relayIN, relayOUT, socCcPct=None, socEkfPct=None):
         row = [timestamp.strftime("%Y/%m/%d"), timestamp.strftime("%H:%M:%S")]
         row += [self._fmtVoltage(v) for v in batteryVoltages]
         row += [self._fmt(currentIN), self._fmt(currentOUT)]
         row += [self._fmt(t) for t in temperatures]
         row += [self._onOff(relayIN), self._onOff(relayOUT)]
+        row += [self._fmt(socCcPct), self._fmt(socEkfPct)]
         return row
 
     def logCycle(self, timestamp, batteryVoltages, currentIN, currentOUT,
-                 temperatures, relayIN, relayOUT):
+                 temperatures, relayIN, relayOUT, socCcPct=None, socEkfPct=None):
         detailRow = self._detailRow(timestamp, batteryVoltages, currentIN, currentOUT,
-                                     temperatures, relayIN, relayOUT)
+                                     temperatures, relayIN, relayOUT, socCcPct, socEkfPct)
         self._appendRow(self.detailPath, detailRow)
 
         validVoltages = [v for v in batteryVoltages if v == v]
@@ -96,13 +98,13 @@ class BatteryFileLogger:
         self._appendRow(self.summaryPath, summaryRow)
 
     def logFastCycle(self, timestamp, batteryVoltages, currentIN, currentOUT,
-                      temperatures, relayIN, relayOUT):
+                      temperatures, relayIN, relayOUT, socCcPct=None, socEkfPct=None):
         """Same row format/content as logCycle's detail row, written to the
         separate fast-log file -- no-op unless setFastLoggingEnabled(True)."""
         if not self.fastEnabled:
             return
         row = self._detailRow(timestamp, batteryVoltages, currentIN, currentOUT,
-                               temperatures, relayIN, relayOUT)
+                               temperatures, relayIN, relayOUT, socCcPct, socEkfPct)
         self._appendRow(self.fastPath, row)
 
     @staticmethod

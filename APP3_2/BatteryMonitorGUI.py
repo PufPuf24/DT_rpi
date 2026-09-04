@@ -416,9 +416,15 @@ class MonitorApp:
         self.monitoringPage.grid_columnconfigure(1, weight=1)
         self.monitoringPage.grid_rowconfigure(0, weight=1)
 
-        self.healthPage = ctk.CTkFrame(self.root, fg_color="transparent")
+        # CTkScrollableFrame, not a plain CTkFrame -- the page stacks 4 cards
+        # (pack health, the B01-Bn grid, Maintenance cycle, SoH history) with no
+        # chart pane to absorb a short window the way Monitoring's does, so on a
+        # window shorter than all 4 combined the B01-Bn grid used to get squeezed
+        # into whatever sliver of row 1 was left over, its labels unreadable, with
+        # no way to reach the rest -- reported directly by the user. Same widget
+        # already used for the Monitoring sidebar's Controls/Settings pages.
+        self.healthPage = ctk.CTkScrollableFrame(self.root, fg_color="transparent")
         self.healthPage.grid_columnconfigure(0, weight=1)
-        self.healthPage.grid_rowconfigure(1, weight=1)
 
         self._pages = {"Monitoring": self.monitoringPage, "Battery Health": self.healthPage}
         self.monitoringPage.grid(row=1, column=0, columnspan=2, sticky="nsew")
@@ -754,7 +760,7 @@ class MonitorApp:
         self.cutoffStatusLabel.pack(anchor="w", padx=12, pady=(0, 10))
 
         # -- ECM model (1 cell) --
-        ecmFrame = self._card(parent, "ECM model (1 cell)", expanded=False)
+        ecmFrame = self._card(parent, "ECM model", expanded=False)
 
         self.ecmSocLabel = ctk.CTkLabel(ecmFrame, text=f"SOC (Coulomb counting): {self.ecm.soc*100:.1f} %",
                                          font=ctk.CTkFont(size=13, weight="bold"),
@@ -1873,7 +1879,7 @@ class MonitorApp:
             self.resLines.append(line)
 
         (ecmLine,) = self.axV.plot([], [], "--", linewidth=1.6, color=ACCENT,
-                                    label="ECM sim (1 cell)")
+                                    label="ECM sim")
         self.ecmLines = [ecmLine]
 
         # 24 thin, semi-transparent lines -- the pack thermal model, not 24 separate
@@ -3794,16 +3800,20 @@ class MonitorApp:
         now = time.time()
         currentIN = currents[0] if len(currents) > 0 else float("nan")
         currentOUT = currents[1] if len(currents) > 1 else float("nan")
+        socCcPct = self.ecmSocY[-1] if self.ecmSocY else float("nan")
+        socEkfPct = self.ecmEkfSocY[-1] if self.ecmEkfSocY else float("nan")
         if now - self._lastFileLogTime >= FILE_LOG_PERIOD:
             self._lastFileLogTime = now
             self.fileLogger.logCycle(datetime.now(), battery, currentIN, currentOUT,
                                       resistances, self.relayState.get(self.relayInCh, False),
-                                      self.relayState.get(self.relayOutCh, False))
+                                      self.relayState.get(self.relayOutCh, False),
+                                      socCcPct, socEkfPct)
         if self.fastFileLogEnabled and now - self._lastFastFileLogTime >= FILE_LOG_PERIOD_FAST:
             self._lastFastFileLogTime = now
             self.fileLogger.logFastCycle(datetime.now(), battery, currentIN, currentOUT,
                                           resistances, self.relayState.get(self.relayInCh, False),
-                                          self.relayState.get(self.relayOutCh, False))
+                                          self.relayState.get(self.relayOutCh, False),
+                                          socCcPct, socEkfPct)
 
     # ------------------------------------------------------------------
     # RELAYS (manual control)
