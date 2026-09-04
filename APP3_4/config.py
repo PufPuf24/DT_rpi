@@ -14,7 +14,8 @@ DEFAULTS = {
     "shunt_ohms": 0.001,
     "resist_channels": [
         [1, "Mid pack"],
-        [2, "Case"],
+        # CH2 "Case" is not physically wired on the real bench -- left out on
+        # purpose, not just hidden in the UI, so it's never queried or logged.
         [3, "Electronics box"],
         [4, "T1"],
         [5, "T2"],

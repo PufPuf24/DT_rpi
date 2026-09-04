@@ -1,0 +1,1 @@
+Datum	Cas	B01_V	B02_V	B03_V	B04_V	B05_V	B06_V	B07_V	B08_V	ProudIN_A	ProudOUT_A	T_Mid pack	T_Electronics box	T_T1	T_T2	T_T3	Rele_IN(Photovoltaics)	Rele_OUT(Load)	SOC_CC_pct	SOC_EKF_pct
