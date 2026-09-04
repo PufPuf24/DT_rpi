@@ -2925,10 +2925,27 @@ class MonitorApp:
         self.fmuDetailWindow.update_data(self.tData, self.ecmPLossY, self.fmuTData, self.fmuY)
 
     def _startFmuThermal(self):
+        # Mid pack, not self.ecmTempSourceIndex (T3 by default) -- the pack thermal
+        # model's 24-cell ROM wants a single BULK initial condition, best represented
+        # by the sensor placed in the middle of the pack, not whichever single-point
+        # sensor the ECM's own electrical-parameter lookup happens to use. Takes one
+        # direct synchronous reading (same pattern as _estimateInitialSocFromLiveReading,
+        # called just before this in toggleMeasurement) because self.resY is still
+        # empty here -- the worker thread that would otherwise fill it hasn't started
+        # yet, so reading self.resY at this point always silently fell back to the
+        # hardcoded 25.0 C default. Falls back to that same default if "Mid pack" isn't
+        # a configured channel, or its reading doesn't look valid -- per config.py's own
+        # note, Mid pack is often not physically wired on the real bench.
         initialTempC = 25.0
-        srcY = self.resY[self.ecmTempSourceIndex] if self.resY else []
-        if srcY and srcY[-1] == srcY[-1]:
-            initialTempC = srcY[-1]
+        names = [name for _, name in self.resistChannels]
+        if "Mid pack" in names:
+            midPackCh, midPackName = self.resistChannels[names.index("Mid pack")]
+            speed = "Fast" if self.pollPeriod < SLOW_THRESHOLD else "Slow"
+            rawOhm = self._query(f"MEASure:RESistance{midPackCh}? 200k,{speed}",
+                                  rangeLimit=RESIST_RANGE_OHM * RANGE_MARGIN)
+            temp = resistanceToCelsius(midPackName, rawOhm)
+            if temp == temp:
+                initialTempC = temp
         self.fmuThermal.setInitialTemperature(initialTempC)
         self.fmuTData = []
         self.fmuY = [[] for _ in range(FMU_N_CELLS)]
